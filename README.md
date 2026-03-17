@@ -1,4 +1,4 @@
-# wolfs
+# wolf
 
 **W**orkflow of **O**utreaching, **L**inkedIn & **F**illing
 
