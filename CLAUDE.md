@@ -21,7 +21,12 @@ wolf/
 ├── src/
 │   ├── cli/          # commander.js CLI entry point and subcommands
 │   ├── mcp/          # MCP server entry point and tool definitions
-│   ├── commands/     # Core logic: hunt, tailor, file, reach, status
+│   ├── commands/
+│   │   ├── hunt/     # Scraper, scorer, dedup
+│   │   ├── tailor/   # Resume parser, Claude prompt, diff
+│   │   ├── file/     # Playwright, form detection, submit
+│   │   ├── reach/    # Contact finder, email drafter, Gmail sender
+│   │   └── status/   # Job list, filters
 │   ├── types/        # Shared types: Job, Resume, AppConfig
 │   └── utils/        # Shared helpers
 ├── data/             # Local DB and runtime data (gitignored)
