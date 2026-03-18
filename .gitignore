@@ -16,17 +16,17 @@ wolf.db
 *.sqlite3
 
 # Tailored resumes & outputs (generated files)
-output/
-tailored/
+output/*
+tailored/*
 *.tailored.md
 
 # Playwright
-playwright-report/
-test-results/
-screenshots/
+playwright-report/*
+test-results/*
+screenshots/*
 
 # Logs
-logs/
+logs/*
 *.log
 npm-debug.log*
 
@@ -46,4 +46,6 @@ Thumbs.db
 
 # data files
 data/*
-!data/.gitkeep
+
+# Always keep .gitkeep files (must be last)
+!**/.gitkeep
