@@ -39,9 +39,9 @@ AI-powered relevance scoring using Claude API.
 
 Rewrite resume bullet points to better match a specific JD.
 
-- Parse resume from Markdown source
+- Parse resume from LaTeX (`.tex`) source
 - AI rewrite via Claude API, preserving structure and truthfulness
-- Output a new tailored `.md` file
+- Output a new tailored `.tex` file + compile to PDF via `xelatex`
 - Show diff and match score
 
 ### Cover Letter Generation (`wolf tailor --cover-letter`)
@@ -49,7 +49,7 @@ Rewrite resume bullet points to better match a specific JD.
 Generate a targeted cover letter for a specific job.
 
 - AI-drafted via Claude API, based on JD + user profile + tailored resume
-- Output as `.md` file alongside the tailored resume
+- Output as `.md` file + convert to PDF via `md-to-pdf`
 - Tone and length configurable
 
 ### User Profile (`wolf init`)
@@ -114,7 +114,7 @@ The following are explicitly **not** part of wolf's goals:
 | **Portfolio / personal website generation** | Orthogonal to job applications; many dedicated tools exist |
 | **Job posting aggregation service** | wolf is a personal tool, not a platform serving multiple users |
 | **Interview scheduling** (calendar management, availability coordination) | Requires calendar integration and real-time coordination outside wolf's scope |
-| **Cover letter formatting / PDF export** | wolf generates cover letter content as Markdown; formatting and PDF conversion are left to external tools |
+| ~~**Cover letter formatting / PDF export**~~ | ~~Moved in-scope: resume exported via LaTeX→PDF, cover letter via Markdown→PDF~~ |
 
 ## Platform & Constraints
 
