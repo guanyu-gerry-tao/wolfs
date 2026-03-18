@@ -164,17 +164,85 @@ src/utils/
 └── logger.ts         # Structured logging
 ```
 
-### 6. External Service Integrations
+### 6. Job Source Provider System
 
-Each external service is accessed only from `src/commands/` or `src/utils/`. No direct service calls from CLI/MCP layers.
+Job data can come from **many different channels**, not just web scrapers. The `hunt` command uses a **JobProvider** abstraction to support pluggable job sources.
+
+**Why:** Different platforms have wildly different accessibility:
+- **LinkedIn** — Apify scraper works well
+- **Handshake** — Very limited scraping/API support; may require email parsing or manual entry
+- **Other platforms** — May need browser automation via BrowserMCP, RSS feeds, or direct API calls
+
+**JobProvider interface:**
+
+```typescript
+// src/types/index.ts
+interface JobProvider {
+  name: string;                          // e.g. "linkedin", "handshake", "manual"
+  hunt(options: HuntOptions): Promise<Job[]>;
+}
+```
+
+**Built-in providers (planned):**
+
+| Provider | Strategy | Difficulty |
+|---|---|---|
+| `ApifyLinkedInProvider` | Apify LinkedIn scraper | Low — well-supported |
+| `ApifyHandshakeProvider` | Apify Handshake scraper | High — limited actors available |
+| `EmailProvider` | Parse job alert emails (Gmail API) | Medium — need email parsing rules |
+| `BrowserMCPProvider` | AI-driven browsing via Chrome BrowserMCP | Medium — AI navigates and extracts |
+| `ManualProvider` | User pastes JD or inputs via `wolf hunt --manual` | Low — just a form/prompt |
+
+**How `hunt` uses providers:**
+
+```typescript
+// src/commands/hunt.ts
+export async function hunt(options: HuntOptions): Promise<HuntResult> {
+  const providers = loadEnabledProviders(config);  // from config
+  const allJobs: Job[] = [];
+
+  for (const provider of providers) {
+    const jobs = await provider.hunt(options);
+    allJobs.push(...jobs);
+  }
+
+  const deduped = deduplicate(allJobs);
+  const scored = await scoreJobs(deduped, userProfile);  // Claude API
+  await db.saveJobs(scored);
+  return { jobs: scored, newCount: scored.length, avgScore: avg(scored) };
+}
+```
+
+**Configuration (in `~/.wolf/config.json`):**
+
+```json
+{
+  "providers": {
+    "linkedin": { "enabled": true },
+    "handshake": { "enabled": true, "strategy": "email" },
+    "manual": { "enabled": true }
+  }
+}
+```
+
+This design means:
+- Adding a new job source = adding one new file implementing `JobProvider`, no changes to `hunt.ts`
+- Users enable/disable providers via config
+- Each provider can have its own strategy (scrape vs email vs manual vs BrowserMCP)
+- Providers are **independent** — if Handshake scraping breaks, LinkedIn still works
+
+### 7. External Service Integrations
+
+Each external service is accessed only from `src/commands/`, `src/utils/`, or job providers. No direct service calls from CLI/MCP layers.
 
 | Service | SDK / Method | Used By |
 |---|---|---|
-| **Apify** | `apify-client` | `hunt` (LinkedIn scraper, Handshake scraper), `reach` (people search) |
+| **Apify** | `apify-client` | `ApifyLinkedInProvider`, `ApifyHandshakeProvider`, `reach` (people search) |
 | **Claude API** | `@anthropic-ai/sdk` | `hunt` (JD scoring), `tailor` (resume rewriting), `reach` (email drafting) |
 | **Playwright** | `playwright` | `file` (form detection, filling, submission, screenshots) |
+| **BrowserMCP** | Chrome DevTools Protocol | `BrowserMCPProvider` (AI-driven job page navigation) |
 | **SQLite** | `better-sqlite3` | `db.ts` (job storage, status tracking) |
-| **Gmail API** | `googleapis` | `reach` (send email via OAuth2) |
+| **Gmail API** | `googleapis` | `reach` (send email), `EmailProvider` (parse job alert emails) |
 
 ## Data Flow Examples
 

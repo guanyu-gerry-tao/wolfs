@@ -163,17 +163,85 @@ src/utils/
 └── logger.ts         # 结构化日志
 ```
 
-### 6. 外部服务集成
+### 6. 职位来源 Provider 系统
 
-每个外部服务只在 `src/commands/` 或 `src/utils/` 中被访问。CLI/MCP 层不直接调用外部服务。
+职位数据可以来自**多种不同渠道**，不仅仅是网页爬虫。`hunt` 命令使用 **JobProvider** 抽象来支持可插拔的职位来源。
+
+**为什么需要这个：** 不同平台的可访问性差异巨大：
+- **LinkedIn** — Apify 爬虫运作良好
+- **Handshake** — 爬虫和 API 支持非常有限；可能需要解析邮件通知或手动输入
+- **其他平台** — 可能需要通过 BrowserMCP 进行浏览器自动化、RSS 订阅或直接 API 调用
+
+**JobProvider 接口：**
+
+```typescript
+// src/types/index.ts
+interface JobProvider {
+  name: string;                          // 如 "linkedin", "handshake", "manual"
+  hunt(options: HuntOptions): Promise<Job[]>;
+}
+```
+
+**内置 provider（计划中）：**
+
+| Provider | 策略 | 难度 |
+|---|---|---|
+| `ApifyLinkedInProvider` | Apify LinkedIn 爬虫 | 低 — 支持良好 |
+| `ApifyHandshakeProvider` | Apify Handshake 爬虫 | 高 — 可用的 actor 非常少 |
+| `EmailProvider` | 解析求职提醒邮件（Gmail API） | 中等 — 需要邮件解析规则 |
+| `BrowserMCPProvider` | AI 驱动的浏览，通过 Chrome BrowserMCP | 中等 — AI 导航并提取信息 |
+| `ManualProvider` | 用户粘贴 JD 或通过 `wolf hunt --manual` 输入 | 低 — 只是一个表单/提示 |
+
+**`hunt` 如何使用 provider：**
+
+```typescript
+// src/commands/hunt.ts
+export async function hunt(options: HuntOptions): Promise<HuntResult> {
+  const providers = loadEnabledProviders(config);  // 从配置读取
+  const allJobs: Job[] = [];
+
+  for (const provider of providers) {
+    const jobs = await provider.hunt(options);
+    allJobs.push(...jobs);
+  }
+
+  const deduped = deduplicate(allJobs);
+  const scored = await scoreJobs(deduped, userProfile);  // Claude API
+  await db.saveJobs(scored);
+  return { jobs: scored, newCount: scored.length, avgScore: avg(scored) };
+}
+```
+
+**配置（在 `~/.wolf/config.json` 中）：**
+
+```json
+{
+  "providers": {
+    "linkedin": { "enabled": true },
+    "handshake": { "enabled": true, "strategy": "email" },
+    "manual": { "enabled": true }
+  }
+}
+```
+
+这个设计意味着：
+- 新增职位来源 = 新增一个实现 `JobProvider` 的文件，不需要修改 `hunt.ts`
+- 用户通过配置启用/禁用 provider
+- 每个 provider 可以有自己的策略（爬虫 vs 邮件 vs 手动 vs BrowserMCP）
+- Provider 之间**相互独立** — Handshake 爬虫坏了，LinkedIn 照常工作
+
+### 7. 外部服务集成
+
+每个外部服务只在 `src/commands/`、`src/utils/` 或 job provider 中被访问。CLI/MCP 层不直接调用外部服务。
 
 | 服务 | SDK / 方式 | 使用者 |
 |---|---|---|
-| **Apify** | `apify-client` | `hunt`（LinkedIn 爬虫、Handshake 爬虫）、`reach`（人员搜索） |
+| **Apify** | `apify-client` | `ApifyLinkedInProvider`、`ApifyHandshakeProvider`、`reach`（人员搜索） |
 | **Claude API** | `@anthropic-ai/sdk` | `hunt`（JD 评分）、`tailor`（简历改写）、`reach`（邮件起草） |
 | **Playwright** | `playwright` | `file`（表单检测、填写、提交、截图） |
+| **BrowserMCP** | Chrome DevTools Protocol | `BrowserMCPProvider`（AI 驱动的职位页面导航） |
 | **SQLite** | `better-sqlite3` | `db.ts`（职位存储、状态追踪） |
-| **Gmail API** | `googleapis` | `reach`（通过 OAuth2 发送邮件） |
+| **Gmail API** | `googleapis` | `reach`（发送邮件）、`EmailProvider`（解析求职提醒邮件） |
 
 ## 数据流示例
 
