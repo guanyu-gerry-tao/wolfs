@@ -118,7 +118,16 @@ export async function hunt(options: HuntOptions): Promise<HuntResult> {
 
 ### 4. 类型层（`src/types/`）
 
-Types 层定义了各层共享的数据结构，是 wolf 的 single source of truth。核心类型包括 `Job`（职位信息）、`Resume`（解析后的简历）、`AppConfig`（用户配置）以及每个命令的 Options/Result 对。完整定义见 [TYPES_zh.md](TYPES_zh.md)。
+Types 层定义了各层共享的数据结构，是 wolf 的 single source of truth。核心类型包括：
+
+- `Company` — 公司是独立的一级实体，与 Job 分开存储。多个 Job 共享一条 Company 记录。`Job.companyId` 是 `Company.id` 的外键。`reach` 命令用 `Company.domain` 推断邮件格式。
+- `Job` — 职位信息，核心数据对象，存入 SQLite。
+- `Resume` — 解析后的简历结构。
+- `UserProfile` — 申请时使用的完整身份信息。wolf 支持**多个 profile**（如不同移民身份、ATS 绕过用的名字变体），`AppConfig.profiles` 是数组，`defaultProfileId` 指定默认值，`Job.appliedProfileId` 记录投递时使用了哪个 profile。
+- `AppConfig` — 用户配置，从 `~/.wolf/config.json` 加载。
+- 每个命令的 Options/Result 对。
+
+完整定义见 [TYPES_zh.md](TYPES_zh.md)。
 
 ### 5. 工具层（`src/utils/`）
 
@@ -167,7 +176,8 @@ export async function hunt(options: HuntOptions): Promise<HuntResult> {
   }
 
   const deduped = deduplicate(allJobs);
-  const scored = await scoreJobs(deduped, userProfile);  // Claude API
+  const filtered = applyDealbreakers(deduped, profile); // 评分前先过硬性过滤，节省 AI API 调用
+  const scored = await scoreJobs(filtered, profile);    // 混合评分：算法负责大多数因素，Claude API 只负责 roleMatch
   await db.saveJobs(scored);
   return { jobs: scored, newCount: scored.length, avgScore: avg(scored) };
 }
@@ -215,7 +225,8 @@ CLI 解析参数
     → apify.runLinkedInScraper(role, loc)     # 爬取 LinkedIn
     → apify.runHandshakeScraper(role, loc)    # 爬取 Handshake
     → deduplicate(linkedinJobs, hsJobs)       # 合并去重
-    → claude.scoreJobs(jobs, userProfile)     # AI 相关性评分
+    → applyDealbreakers(jobs, profile)        # 硬性过滤（节省 AI API 调用）
+    → scoreJobs(jobs, profile)               # 混合评分：算法（workAuth/location/salary/…）+ Claude API（仅 roleMatch）
     → db.saveJobs(scoredJobs)                # 持久化到 SQLite
     → return { jobs: scoredJobs, newCount, avgScore }
   ← CLI 格式化为表格并输出
@@ -227,11 +238,12 @@ CLI 解析参数
 CLI 解析参数
   → tailor({ jobId: "abc123" })
     → db.getJob(jobId)                       # 从本地数据库获取 JD
-    → config.getResumePath()                 # 获取简历 .md 路径
-    → parseResume(resumePath)                # 解析为结构化 Resume
+    → profile.resumePath                     # 从 profile 获取基础 .tex 简历路径
+    → parseResume(resumePath)                # 将 .tex 解析为结构化 Resume
     → claude.tailorResume(resume, job.desc)  # AI 改写
-    → writeFile(tailoredPath, result)        # 保存定制版 .md
-    → return { tailoredPath, changes, matchScore }
+    → writeFile(tailoredTexPath, result)     # 保存定制版 .tex
+    → xelatex(tailoredTexPath)              # 编译为 PDF
+    → return { tailoredTexPath, tailoredPdfPath, coverLetterMdPath, coverLetterPdfPath, changes, matchScore }
   ← CLI 打印 diff 和摘要
 ```
 
@@ -294,20 +306,20 @@ reach()  ── 写入 → [SQLite: outreach_draft_path]
 具体示例：
 
 ```typescript
-// hunt：保存发现的职位
-db.saveJob({ id: "abc", title: "SDE", company: "Google", status: "new", score: 0.9 })
+// hunt：保存发现的职位（companyId 引用 Company 表）
+db.saveJob({ id: "abc", title: "SDE", companyId: "company-uuid", status: "new", score: 0.9 })
 
-// tailor：读取职位，写回定制简历路径
+// tailor：读取职位，写回定制 .tex + .pdf 路径
 const job = db.getJob("abc")
-db.updateJob("abc", { tailoredResumePath: "./data/tailored/abc.md" })
+db.updateJob("abc", { tailoredResumePath: "./data/tailored/abc.tex", tailoredResumePdfPath: "./data/tailored/abc.pdf" })
 
 // fill：读取职位 + 简历路径，更新状态
 const job = db.getJob("abc")  // 包含 job.url + job.tailoredResumePath
 db.updateJob("abc", { status: "applied", screenshotPath: "./data/screenshots/abc.png" })
 
-// reach：读取职位，写入推广草稿
-const job = db.getJob("abc")  // 包含 job.company, job.title
-db.updateJob("abc", { outreachDraft: "./data/outreach/abc.md" })
+// reach：读取职位，写入推广草稿路径
+const job = db.getJob("abc")  // 包含 job.companyId, job.title
+db.updateJob("abc", { outreachDraftPath: "./data/outreach/abc.md" })
 ```
 
 这个设计意味着：

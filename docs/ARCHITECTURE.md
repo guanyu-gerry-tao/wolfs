@@ -119,7 +119,16 @@ export async function hunt(options: HuntOptions): Promise<HuntResult> {
 
 ### 4. Types (`src/types/`)
 
-Types 层定义了各层共享的数据结构，是 wolf 的 single source of truth。核心类型包括 `Job`（职位信息）、`Resume`（解析后的简历）、`AppConfig`（用户配置）以及每个命令的 Options/Result 对。完整定义见 [TYPES.md](TYPES.md)。
+Types 层定义了各层共享的数据结构，是 wolf 的 single source of truth。核心类型包括：
+
+- `Company` — 公司是独立的一级实体，与 Job 分开存储。多个 Job 共享一条 Company 记录。`Job.companyId` 是 `Company.id` 的外键。`reach` 命令用 `Company.domain` 推断邮件格式。
+- `Job` — 职位信息，核心数据对象，存入 SQLite。
+- `Resume` — 解析后的简历结构。
+- `UserProfile` — 申请时使用的完整身份信息。wolf 支持**多个 profile**（如不同移民身份、ATS 绕过用的名字变体），`AppConfig.profiles` 是数组，`defaultProfileId` 指定默认值，`Job.appliedProfileId` 记录投递时使用了哪个 profile。
+- `AppConfig` — 用户配置，从 `~/.wolf/config.json` 加载。
+- 每个命令的 Options/Result 对。
+
+完整定义见 [TYPES.md](TYPES.md)。
 
 ### 5. Utils (`src/utils/`)
 
@@ -168,7 +177,8 @@ export async function hunt(options: HuntOptions): Promise<HuntResult> {
   }
 
   const deduped = deduplicate(allJobs);
-  const scored = await scoreJobs(deduped, userProfile);  // Claude API
+  const filtered = applyDealbreakers(deduped, profile); // hard filters before scoring — saves AI calls
+  const scored = await scoreJobs(filtered, profile);    // hybrid: algorithm scores most factors, Claude API scores roleMatch only
   await db.saveJobs(scored);
   return { jobs: scored, newCount: scored.length, avgScore: avg(scored) };
 }
@@ -216,7 +226,8 @@ CLI parses args
     → apify.runLinkedInScraper(role, loc)     # scrape LinkedIn
     → apify.runHandshakeScraper(role, loc)    # scrape Handshake
     → deduplicate(linkedinJobs, hsJobs)       # merge and dedupe
-    → claude.scoreJobs(jobs, userProfile)     # AI relevance scoring
+    → applyDealbreakers(jobs, profile)        # hard filter before scoring (saves AI calls)
+    → scoreJobs(jobs, profile)               # hybrid: algorithm (workAuth/location/salary/…) + Claude API (roleMatch only)
     → db.saveJobs(scoredJobs)                # persist to SQLite
     → return { jobs: scoredJobs, newCount, avgScore }
   ← CLI formats as table and prints
@@ -228,11 +239,12 @@ CLI parses args
 CLI parses args
   → tailor({ jobId: "abc123" })
     → db.getJob(jobId)                       # fetch JD from local DB
-    → config.getResumePath()                 # get resume .md path
-    → parseResume(resumePath)                # parse into structured Resume
+    → profile.resumePath                     # get base .tex resume path from profile
+    → parseResume(resumePath)                # parse .tex into structured Resume
     → claude.tailorResume(resume, job.desc)  # AI rewrite
-    → writeFile(tailoredPath, result)        # save tailored .md
-    → return { tailoredPath, changes, matchScore }
+    → writeFile(tailoredTexPath, result)     # save tailored .tex
+    → xelatex(tailoredTexPath)              # compile to PDF
+    → return { tailoredTexPath, tailoredPdfPath, coverLetterMdPath, coverLetterPdfPath, changes, matchScore }
   ← CLI prints diff and summary
 ```
 
@@ -295,20 +307,20 @@ reach()  ── writes → [SQLite: outreach_draft_path]
 Concrete example:
 
 ```typescript
-// hunt: save discovered jobs
-db.saveJob({ id: "abc", title: "SDE", company: "Google", status: "new", score: 0.9 })
+// hunt: save discovered jobs (companyId references the Company table)
+db.saveJob({ id: "abc", title: "SDE", companyId: "company-uuid", status: "new", score: 0.9 })
 
-// tailor: read job, write tailored resume path back
+// tailor: read job, write tailored .tex + .pdf paths back
 const job = db.getJob("abc")
-db.updateJob("abc", { tailoredResumePath: "./data/tailored/abc.md" })
+db.updateJob("abc", { tailoredResumePath: "./data/tailored/abc.tex", tailoredResumePdfPath: "./data/tailored/abc.pdf" })
 
 // fill: read job + resume path, update status
 const job = db.getJob("abc")  // has job.url + job.tailoredResumePath
 db.updateJob("abc", { status: "applied", screenshotPath: "./data/screenshots/abc.png" })
 
-// reach: read job, write outreach draft
-const job = db.getJob("abc")  // has job.company, job.title
-db.updateJob("abc", { outreachDraft: "./data/outreach/abc.md" })
+// reach: read job, write outreach draft path
+const job = db.getJob("abc")  // has job.companyId, job.title
+db.updateJob("abc", { outreachDraftPath: "./data/outreach/abc.md" })
 ```
 
 This design means:
