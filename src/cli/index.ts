@@ -6,6 +6,7 @@ import { fill } from '../commands/fill/index.js';
 import { reach } from '../commands/reach/index.js';
 import { status } from '../commands/status/index.js';
 import { init } from '../commands/init/index.js';
+import { envShow, envSet, envClear } from '../commands/env/index.js';
 import { startMcpServer } from '../mcp/server.js';
 
 const program = new Command();
@@ -100,6 +101,21 @@ program
     });
     console.log(JSON.stringify(result, null, 2));
   });
+
+const envCmd = new Command('env').description('Manage WOLF_ environment variables (API keys)');
+envCmd
+  .command('show')
+  .description('List all WOLF_* keys and whether they are set (values masked)')
+  .action(() => { envShow(); });
+envCmd
+  .command('set')
+  .description('Interactively set WOLF_* keys and write them to your shell RC file')
+  .action(async () => { await envSet(); });
+envCmd
+  .command('clear')
+  .description('Remove all WOLF_* export lines from shell RC files')
+  .action(async () => { await envClear(); });
+program.addCommand(envCmd);
 
 const mcp = new Command('mcp').description('MCP server commands');
 mcp
