@@ -85,3 +85,17 @@ Decisions made during Milestone 1 are reconstructed retrospectively from commit 
 **Me:** Write a decision log to document the AI-augmented workflow for readers.
 **AI:** Agreed. Reviewed commit history, drafted 12 entries in the format: Me → AI → Result.
 **Result:** This file.
+
+---
+
+**2026-03-20 — pwd-based workspace instead of `~/.wolf/`**
+**Me:** Users should be able to store config, resume, and generated files in any folder they choose — not hidden in `~/.wolf/`. Running `wolf init` in the current directory should make that directory the workspace.
+**AI:** Validated. Also noted this aligns perfectly with AI agent workflows — Claude Code's working context is the open folder, so keeping wolf's workspace there eliminates cross-directory jumps and permission issues.
+**Result:** Adopted. `wolf init` creates `wolf.toml` and `.env` in pwd. All commands look for `wolf.toml` in pwd. Generated files (tailored resumes, screenshots, drafts) go into subdirectories of the workspace. `~/.wolf/` removed entirely.
+
+---
+
+**2026-03-20 — Record design decisions in DECISIONS.md**
+**Me:** Claude should remind me to record significant design decisions as they happen.
+**AI:** Agreed. Added a workflow rule to CLAUDE.md.
+**Result:** Rule added. This entry is the meta-example.

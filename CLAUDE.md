@@ -49,7 +49,7 @@ wolf/
 | Browser automation | Playwright |
 | Local storage | SQLite |
 | Email | Gmail API (OAuth2) |
-| Config | `~/.wolf/config.json` + `.env` |
+| Config | `wolf.toml` in workspace dir + `.env` |
 
 ## CLI commands
 
@@ -78,6 +78,7 @@ GMAIL_CLIENT_SECRET=
 ## Workflow rules
 
 - Do NOT commit or push without explicit user approval. Always show changes and wait for confirmation first.
+- When a significant design decision is made during conversation, ask the user: "Should we record this in DECISIONS.md?" (This rule itself is recorded in DECISIONS.md — 2026-03-20.)
 
 ## Documentation rules
 
