@@ -6,20 +6,20 @@
 > wolf is runnable as both a CLI and an MCP server, all subcommands registered (stubs ok)
 
 ### Project setup
-- [ ] Init TypeScript + Node.js project structure
-- [ ] Define shared types (`Job`, `Resume`, `AppConfig`)
+- [x] Init TypeScript + Node.js project structure
+- [x] Define shared types (`Job`, `Resume`, `AppConfig`)
 - [ ] `wolf init` — interactive setup wizard (resume path, target roles, locations)
-- [ ] Config read/write (`~/.wolf/config.json`)
-- [ ] `.env` handling for API keys (Apify, Claude, Gmail)
+- [x] Config read/write (`~/.wolf/config.json`)
+- [x] `.env` handling for API keys (Apify, Claude, Gmail)
 
 ### CLI skeleton
-- [ ] Set up `commander.js` CLI entry point (`wolf`)
-- [ ] Register subcommands: `wolf hunt`, `wolf tailor`, `wolf fill`, `wolf reach`, `wolf status` (stubs ok)
+- [x] Set up `commander.js` CLI entry point (`wolf`)
+- [x] Register subcommands: `wolf hunt`, `wolf tailor`, `wolf fill`, `wolf reach`, `wolf status` (stubs ok)
 
 ### MCP skeleton
-- [ ] MCP server entry point (`wolf mcp serve`)
-- [ ] Register MCP tools: `wolf_hunt`, `wolf_tailor`, `wolf_fill`, `wolf_reach` (stubs ok)
-- [ ] Typed input/output schemas defined for all 4 tools
+- [x] MCP server entry point (`wolf mcp serve`)
+- [x] Register MCP tools: `wolf_hunt`, `wolf_tailor`, `wolf_fill`, `wolf_reach` (stubs ok)
+- [x] Typed input/output schemas defined for all 4 tools
 - [ ] Verify connection from Claude Desktop / OpenClaw
 
 ---
