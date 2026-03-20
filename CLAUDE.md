@@ -61,6 +61,8 @@ wolf/
 | `wolf fill` | Auto-fill job application form |
 | `wolf reach` | Find HR contacts and send outreach |
 | `wolf status` | List tracked jobs with status/score |
+| `wolf env show` | List WOLF_* keys and whether they are set |
+| `wolf env clear` | Remove WOLF_* export lines from shell RC files |
 
 ## MCP tools
 
@@ -68,12 +70,18 @@ wolf/
 
 ## Environment variables
 
+API keys are stored in **shell environment variables**, not in the workspace directory.
+This prevents accidental exposure when sharing, zipping, or cloud-syncing the workspace.
+
 ```
-ANTHROPIC_API_KEY=
-APIFY_API_TOKEN=
-GMAIL_CLIENT_ID=
-GMAIL_CLIENT_SECRET=
+WOLF_ANTHROPIC_API_KEY=
+WOLF_APIFY_API_TOKEN=
+WOLF_GMAIL_CLIENT_ID=
+WOLF_GMAIL_CLIENT_SECRET=
 ```
+
+Add to `~/.zshrc` (Mac/Linux) or User Environment Variables (Windows).
+Run `wolf env show` to verify, `wolf env clear` to remove.
 
 ## Workflow rules
 

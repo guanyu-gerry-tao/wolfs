@@ -137,7 +137,7 @@ Types 层定义了各层共享的数据结构，是 wolf 的 single source of tr
 src/utils/
 ├── config.ts         # 读写 ~/.wolf/config.json
 ├── db.ts             # SQLite 数据库访问（Job 的 CRUD）
-├── env.ts            # 加载和验证 .env 环境变量
+├── env.ts            # 读取 WOLF_* 系统环境变量（不使用 .env 文件）
 └── logger.ts         # 结构化日志
 ```
 
@@ -401,7 +401,7 @@ TypeScript (src/)  →  tsc  →  JavaScript (dist/)  →  node dist/cli/index.j
 
 ## 安全考虑
 
-- **API key** 存储在 `.env`，永远不提交（已在 `.gitignore` 中覆盖）
+- **API key** 以 `WOLF_*` 前缀存储在 shell 系统环境变量中，永远不放在 workspace 目录里——workspace 可能被共享、云同步或与简历文件一起打包。使用 `wolf env show` / `wolf env clear` 管理。
 - **Gmail OAuth token** 存储在 `~/.wolf/credentials/`，永远不提交
 - **表单填写** 默认试运行；实际提交需要显式 `--no-dry-run` 或确认
 - **邮件发送** 需要 `--send` flag 加交互确认

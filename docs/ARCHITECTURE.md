@@ -138,7 +138,7 @@ Shared helper functions used across commands.
 src/utils/
 ├── config.ts         # Read/write ~/.wolf/config.json
 ├── db.ts             # SQLite database access (CRUD for jobs)
-├── env.ts            # Load and validate .env variables
+├── env.ts            # Read WOLF_* system environment variables (no .env file)
 └── logger.ts         # Structured logging
 ```
 
@@ -402,7 +402,7 @@ TypeScript (src/)  →  tsc  →  JavaScript (dist/)  →  node dist/cli/index.j
 
 ## Security Considerations
 
-- **API keys** stored in `.env`, never committed (covered by `.gitignore`)
+- **API keys** stored as `WOLF_*` shell environment variables, never in the workspace directory — workspace may be shared, cloud-synced, or zipped alongside resume files. Use `wolf env show` / `wolf env clear` to manage.
 - **Gmail OAuth tokens** stored in `~/.wolf/credentials/`, never committed
 - **Form filling** defaults to dry-run; explicit `--no-dry-run` or confirmation required for live submission
 - **Email sending** requires `--send` flag plus interactive confirmation

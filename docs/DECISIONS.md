@@ -99,3 +99,10 @@ Decisions made during Milestone 1 are reconstructed retrospectively from commit 
 **Me:** Claude should remind me to record significant design decisions as they happen.
 **AI:** Agreed. Added a workflow rule to CLAUDE.md.
 **Result:** Rule added. This entry is the meta-example.
+
+---
+
+**2026-03-20 — API keys in shell env vars, not `.env` in workspace**
+**Me:** The workspace directory will likely be cloud-synced (iCloud/OneDrive) or zipped and shared alongside resume files. A `.env` file there is a leak waiting to happen.
+**AI:** Agreed. Shell environment variables never enter the workspace. `WOLF_` prefix added to namespace keys away from other tools. `wolf env show` / `wolf env clear` added for discoverability and cleanup.
+**Result:** Adopted. `wolf init` no longer creates `.env`. All keys read from `process.env.WOLF_*`. Users set keys in `~/.zshrc` (Mac/Linux) or Windows User Environment Variables.
