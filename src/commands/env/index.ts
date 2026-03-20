@@ -12,11 +12,33 @@ const WOLF_KEYS = [
 
 type WolfKey = (typeof WOLF_KEYS)[number];
 
-const KEY_DESCRIPTIONS: Record<WolfKey, string> = {
-  WOLF_ANTHROPIC_API_KEY:  'Anthropic API Key  (AI scoring/tailoring, required)',
-  WOLF_APIFY_API_TOKEN:    'Apify API Token    (LinkedIn scraping, optional)',
-  WOLF_GMAIL_CLIENT_ID:    'Gmail Client ID    (email outreach, optional)',
-  WOLF_GMAIL_CLIENT_SECRET:'Gmail Client Secret(email outreach, optional)',
+interface KeyInfo {
+  prompt: string;
+  purpose: string;
+  howTo: string;
+}
+
+const KEY_INFO: Record<WolfKey, KeyInfo> = {
+  WOLF_ANTHROPIC_API_KEY: {
+    prompt:  'Anthropic API Key',
+    purpose: 'Powers all AI features: job scoring, resume tailoring, email drafting. Required.',
+    howTo:   'console.anthropic.com → Sign up → API Keys → Create key',
+  },
+  WOLF_APIFY_API_TOKEN: {
+    prompt:  'Apify API Token',
+    purpose: 'Scrapes LinkedIn and Handshake job listings.',
+    howTo:   'apify.com → Sign up → Settings → Integrations → API token (free tier available)',
+  },
+  WOLF_GMAIL_CLIENT_ID: {
+    prompt:  'Gmail Client ID',
+    purpose: 'Sends cold outreach emails via your Gmail account.',
+    howTo:   'console.cloud.google.com → New project → APIs & Services → Credentials → OAuth 2.0 Client ID',
+  },
+  WOLF_GMAIL_CLIENT_SECRET: {
+    prompt:  'Gmail Client Secret',
+    purpose: 'Pair with Client ID for Gmail OAuth authentication.',
+    howTo:   'Same OAuth 2.0 credential as above',
+  },
 };
 
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
@@ -121,22 +143,49 @@ export async function envSet(): Promise<void> {
   }
 
   const rcFile = detectRcFile();
-  console.log(`\n${bold('Set up API keys')} ${dim(`(will be written to ${rcFile})`)}`);
-  console.log(dim('Leave blank to skip.\n'));
 
+  // ── Info page ─────────────────────────────────────────────────────────────
+  console.log(`
+${bold('── API Keys ──')}
+
+API keys are passwords that give wolf access to external services on your behalf.
+wolf uses up to 4 keys:
+
+  ${bold('1. WOLF_ANTHROPIC_API_KEY')}  ${red('(required)')}
+     ${KEY_INFO.WOLF_ANTHROPIC_API_KEY.purpose}
+     Get it: ${dim(KEY_INFO.WOLF_ANTHROPIC_API_KEY.howTo)}
+     Cost: pay-per-use, ~$0.01–0.03 per job scored
+
+  ${bold('2. WOLF_APIFY_API_TOKEN')}  ${dim('(optional)')}
+     ${KEY_INFO.WOLF_APIFY_API_TOKEN.purpose}
+     Get it: ${dim(KEY_INFO.WOLF_APIFY_API_TOKEN.howTo)}
+
+  ${bold('3. WOLF_GMAIL_CLIENT_ID')}  ${dim('(optional)')}
+  ${bold('4. WOLF_GMAIL_CLIENT_SECRET')}
+     ${KEY_INFO.WOLF_GMAIL_CLIENT_ID.purpose}
+     Get it: ${dim(KEY_INFO.WOLF_GMAIL_CLIENT_ID.howTo)}
+`);
+
+  await confirm({ message: 'Ready to enter your keys?', default: true });
+
+  console.log(dim(`\nKeys will be written to ${rcFile}. Leave blank to skip.\n`));
+
+  // ── Prompts ───────────────────────────────────────────────────────────────
   const toWrite: { key: string; value: string }[] = [];
 
   for (const key of WOLF_KEYS) {
     const current = process.env[key];
-    const description = KEY_DESCRIPTIONS[key];
+    const { prompt, purpose, howTo } = KEY_INFO[key];
+    console.log(dim(`  ${purpose}`));
+    console.log(dim(`  Get it: ${howTo}`));
     const value = await input({
-      message: `${description}:`,
-      default: '',
-      ...(current ? { default: current } : {}),
+      message: `${prompt}:`,
+      ...(current ? { default: current } : { default: '' }),
     });
     if (value.trim()) {
       toWrite.push({ key, value: value.trim() });
     }
+    console.log('');
   }
 
   if (toWrite.length === 0) {
