@@ -49,7 +49,7 @@ wolf/
 | Browser automation | Playwright |
 | Local storage | SQLite |
 | Email | Gmail API (OAuth2) |
-| Config | `wolf.toml` in workspace dir + `.env` |
+| Config | `wolf.toml` in workspace root |
 
 ## CLI commands
 
@@ -70,8 +70,7 @@ wolf/
 
 ## Environment variables
 
-API keys are stored in **shell environment variables**, not in the workspace directory.
-This prevents accidental exposure when sharing, zipping, or cloud-syncing the workspace.
+API keys use a `WOLF_` prefix and are stored as shell environment variables (not in `.env` files — workspace may be cloud-synced or shared with resumes). Use `wolf env set` to configure them.
 
 ```
 WOLF_ANTHROPIC_API_KEY=
@@ -82,6 +81,16 @@ WOLF_GMAIL_CLIENT_SECRET=
 
 Add to `~/.zshrc` (Mac/Linux) or User Environment Variables (Windows).
 Run `wolf env show` to verify, `wolf env clear` to remove.
+
+For MCP server usage, add these to the `env` section of `claude_desktop_config.json`.
+
+## Testing conventions
+
+- Unit test files go in a `__tests__/` folder adjacent to the source they test
+  - e.g. `src/utils/__tests__/config.test.ts` tests `src/utils/config.ts`
+  - e.g. `src/commands/env/__tests__/env.test.ts` tests `src/commands/env/index.ts`
+- Test files are named `<subject>.test.ts`
+- Use Vitest; run with `npm test`
 
 ## Workflow rules
 
