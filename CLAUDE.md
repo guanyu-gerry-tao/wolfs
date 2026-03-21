@@ -49,7 +49,7 @@ wolf/
 | Browser automation | Playwright |
 | Local storage | SQLite |
 | Email | Gmail API (OAuth2) |
-| Config | `~/.wolf/config.json` + `.env` |
+| Config | `wolf.toml` in workspace root |
 
 ## CLI commands
 
@@ -61,6 +61,8 @@ wolf/
 | `wolf fill` | Auto-fill job application form |
 | `wolf reach` | Find HR contacts and send outreach |
 | `wolf status` | List tracked jobs with status/score |
+| `wolf env show` | List WOLF_* keys and whether they are set |
+| `wolf env clear` | Remove WOLF_* export lines from shell RC files |
 
 ## MCP tools
 
@@ -68,16 +70,32 @@ wolf/
 
 ## Environment variables
 
+API keys use a `WOLF_` prefix and are stored as shell environment variables (not in `.env` files — workspace may be cloud-synced or shared with resumes). Use `wolf env set` to configure them.
+
 ```
-ANTHROPIC_API_KEY=
-APIFY_API_TOKEN=
-GMAIL_CLIENT_ID=
-GMAIL_CLIENT_SECRET=
+WOLF_ANTHROPIC_API_KEY=
+WOLF_APIFY_API_TOKEN=
+WOLF_GMAIL_CLIENT_ID=
+WOLF_GMAIL_CLIENT_SECRET=
 ```
+
+Add to `~/.zshrc` (Mac/Linux) or User Environment Variables (Windows).
+Run `wolf env show` to verify, `wolf env clear` to remove.
+
+For MCP server usage, add these to the `env` section of `claude_desktop_config.json`.
+
+## Testing conventions
+
+- Unit test files go in a `__tests__/` folder adjacent to the source they test
+  - e.g. `src/utils/__tests__/config.test.ts` tests `src/utils/config.ts`
+  - e.g. `src/commands/env/__tests__/env.test.ts` tests `src/commands/env/index.ts`
+- Test files are named `<subject>.test.ts`
+- Use Vitest; run with `npm test`
 
 ## Workflow rules
 
 - Do NOT commit or push without explicit user approval. Always show changes and wait for confirmation first.
+- When a significant design decision is made during conversation, ask the user: "Should we record this in DECISIONS.md?" (This rule itself is recorded in DECISIONS.md — 2026-03-20.)
 
 ## Documentation rules
 
