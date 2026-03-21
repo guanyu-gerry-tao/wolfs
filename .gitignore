@@ -11,6 +11,8 @@ build/
 .env.*.local
 
 # Wolf config & data (user-specific)
+wolf.toml
+wolf.toml.backup*
 wolf.db
 *.sqlite
 *.sqlite3

@@ -13,15 +13,17 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
+    "@inquirer/prompts": "^8.3.2",
     "@modelcontextprotocol/sdk": "^1.10.1",
     "better-sqlite3": "^11.9.1",
     "commander": "^13.1.0",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "smol-toml": "^1.6.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.13.10",
-    "vitest": "^4.1.0",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "vitest": "^4.1.0"
   }
 }
