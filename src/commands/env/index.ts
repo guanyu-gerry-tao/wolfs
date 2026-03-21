@@ -79,7 +79,8 @@ function detectRcFile(): string {
  *   ...
  *   (blank line)
  */
-async function writeWolfBlock(rcFile: string, entries: { key: string; value: string }[]): Promise<void> {
+/** @internal exported for testing */
+export async function writeWolfBlock(rcFile: string, entries: { key: string; value: string }[]): Promise<void> {
   let content = '';
   try {
     content = await fs.readFile(rcFile, 'utf-8');
