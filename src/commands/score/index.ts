@@ -67,7 +67,7 @@ export async function score(_options: ScoreOptions): Promise<ScoreResult> {
   // 1. Load config + profile, initialize DB
   // 2. Fetch unscored jobs (filter by options.jobIds if provided)
   //    Return early if no jobs to score
-  // 3. For each job, call Claude (messages.create, not batch) to extract ExtractedJobFields
+  // 3. For each job, call anthropicClient (from utils/ai.ts) to extract ExtractedJobFields
   //    from job.description — sponsorship, remote, salary, tech stack, location
   // 4. Apply dealbreakers (applyDealbreakers); mark filtered jobs as status 'filtered' in DB
   // 5a. If options.single: call scoreSingle(job, profile), return score + comment immediately
@@ -138,8 +138,7 @@ export async function scoreSingle(
   // 1. Build prompt from job + profile (same structure as batch submit, single item)
   //    - profileSummary: extract skills, targetRoles, immigrationStatus from profile
   //    - dealbreakers: extract from profile.scoringPreferences.dealbreakers
-  // 2. Call claude-haiku-* via anthropic.messages.create (NOT batch API)
-  //    model: 'claude-haiku-4-5-20251001'
+  // 2. Call anthropicClient(prompt) from utils/ai.ts — use haiku model for cost efficiency
   //    Prompt must instruct Claude to return JSON matching ScoringResponse
   // 3. Parse response JSON → validate:
   //    - score must be number in [0.0, 1.0]

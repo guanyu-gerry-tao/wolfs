@@ -130,6 +130,8 @@ export async function submit(
   // 1. Build a ScoringRequest for each job (jobId, jdText, profileSummary, dealbreakers)
   // 2. Format all requests as Anthropic Batch API items (custom_id = jobId)
   //    Each item's prompt must instruct Claude to return JSON matching ScoringResponse
+  //    Note: submit() calls the Batch API directly (NOT anthropicClient from utils/ai.ts)
+  //    because Batch API has a different endpoint and request format than messages.create
   // 3. POST to Anthropic Batch API, receive provider batchId
   // 4. Save to DB via saveBatch (type, aiProvider, profileId) with status 'pending'
   // 5. Return batchId
