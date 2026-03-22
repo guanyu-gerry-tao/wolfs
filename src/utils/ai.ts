@@ -11,6 +11,26 @@ export type AIClient = (
 ) => Promise<string>;
 
 /**
+ * Unified AI call. Routes to the correct provider based on options.
+ * Use this in all wolf commands — do NOT call anthropicClient/openaiClient directly.
+ *
+ * @param prompt - User message
+ * @param systemPrompt - Optional system instruction
+ * @param options - provider defaults to 'anthropic'; model defaults to haiku
+ * TODO: implement by calling anthropicClient or openaiClient based on options.provider
+ */
+export async function aiClient(
+  _prompt: string,
+  _systemPrompt?: string,
+  _options?: {
+    provider?: 'anthropic' | 'openai';
+    model?: string;
+  }
+): Promise<string> {
+  throw new Error('not implemented');
+}
+
+/**
  * 调用 Claude（Anthropic）并返回回复文本。
  * TODO: 使用 @anthropic-ai/sdk 实现
  */
