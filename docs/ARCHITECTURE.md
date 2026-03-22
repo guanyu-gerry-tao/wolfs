@@ -81,7 +81,7 @@ src/mcp/
 - Map incoming tool calls to the corresponding function in `src/commands/`
 - Return structured JSON results (no terminal formatting)
 
-The MCP layer registers 5 tools (`wolf_hunt`, `wolf_tailor`, `wolf_fill`, `wolf_reach`, `wolf_status`), each mapping directly to the corresponding function in `src/commands/`. Input/output schemas are defined in [TYPES.md § MCP Tool Schemas](TYPES.md#mcp-tool-schemas).
+The MCP layer registers 6 tools (`wolf_hunt`, `wolf_add`, `wolf_score`, `wolf_tailor`, `wolf_fill`, `wolf_reach`, `wolf_status`). `wolf_add` is MCP-only — it has no CLI equivalent, because its caller (an AI agent) already holds the structured content and wolf only needs to store it. Input/output schemas are defined in [TYPES.md § MCP Tool Schemas](TYPES.md#mcp-tool-schemas).
 
 ### 3. Commands Layer (`src/commands/`)
 
@@ -89,7 +89,9 @@ The core of wolf. Each file exports a single async function containing all busin
 
 ```
 src/commands/
-├── hunt/             # Job search and scoring
+├── hunt/             # Job ingestion — fetch raw jobs from providers, save to DB
+├── add/              # Single job ingestion — store AI-structured job from MCP caller
+├── score/            # Job processing — AI extraction, dealbreaker filtering, scoring
 ├── tailor/           # Resume tailoring
 ├── fill/             # Form auto-fill
 ├── reach/            # HR contact finding and outreach
@@ -104,17 +106,32 @@ src/commands/
 - Handles its own error cases and returns structured errors
 - Is fully testable in isolation (no CLI/MCP dependencies)
 
-**Example signature:**
+**Example signatures:**
 
 ```typescript
-// src/commands/hunt.ts
+// src/commands/add/index.ts — single job from AI orchestrator (MCP only)
+export async function add(options: AddOptions): Promise<AddResult> {
+  // 1. Receive already-structured { title, company, jdText, url? } from AI caller
+  // 2. Save to DB with status: raw, score: null
+  // 3. Return jobId for chaining into wolf_score or wolf_tailor
+}
+
+// src/commands/hunt/index.ts — fetch only
 export async function hunt(options: HuntOptions): Promise<HuntResult> {
-  // 1. Read config
-  // 2. Run enabled job providers
-  // 3. Deduplicate results
-  // 4. Score with Claude API
-  // 5. Save to local DB
-  // 6. Return structured result
+  // 1. Load enabled providers from config
+  // 2. Run each provider, collect raw jobs
+  // 3. Deduplicate across providers
+  // 4. Save to DB with status: raw, score: null
+  // 5. Return ingested count
+}
+
+// src/commands/score/index.ts — process only
+export async function score(options: ScoreOptions): Promise<ScoreResult> {
+  // 1. Read unscored jobs (score: null) from DB
+  // 2. AI field extraction (sponsorship, tech stack, remote, salary)
+  // 3. Apply dealbreakers — save disqualified as status: filtered
+  // 4. Submit remaining jobs to Claude Batch API for async scoring
+  // 5. Return batch ID and pending count
 }
 ```
 
@@ -153,19 +170,20 @@ Job data can come from **many different channels**. The `hunt` command uses a **
 
 **Built-in providers (planned):**
 
-| Provider | Strategy | Difficulty |
+| Provider | Strategy | Notes |
 |---|---|---|
+| `ApiProvider` | Fetch from any user-configured HTTP endpoint | Generic — works with any JSON API; AI extracts structured fields from raw response |
 | `EmailProvider` | Parse job alert emails (Gmail API) | Medium — need email parsing rules |
-| `BrowserMCPProvider` | AI-driven browsing via Chrome BrowserMCP | Medium — AI navigates and extracts |
-| `ManualProvider` | User pastes JD or inputs via `wolf hunt --manual` | Low — just a form/prompt |
+| `BrowserMCPProvider` | AI-driven browsing via Chrome BrowserMCP | AI navigates job pages and extracts listings |
+| `ManualProvider` | User pastes JD or inputs via `wolf hunt --manual` (CLI) | For CLI users; AI agents use `wolf_add` instead |
 
-**How `hunt` uses providers:**
+**How `hunt` uses providers (ingest only):**
 
 ```typescript
-// src/commands/hunt.ts
+// src/commands/hunt/index.ts
 export async function hunt(options: HuntOptions): Promise<HuntResult> {
   const providers = loadEnabledProviders(config);  // from config
-  const allJobs: Job[] = [];
+  const allJobs: RawJob[] = [];
 
   for (const provider of providers) {
     const jobs = await provider.hunt(options);
@@ -173,10 +191,22 @@ export async function hunt(options: HuntOptions): Promise<HuntResult> {
   }
 
   const deduped = deduplicate(allJobs);
-  const filtered = applyDealbreakers(deduped, profile); // hard filters before scoring — saves AI calls
-  const scored = await scoreJobs(filtered, profile);    // hybrid: algorithm scores most factors, Claude API scores roleMatch only
-  await db.saveJobs(scored);
-  return { jobs: scored, newCount: scored.length, avgScore: avg(scored) };
+  await db.saveJobs(deduped, { status: 'raw', score: null });
+  return { ingestedCount: deduped.length, newCount: newJobs.length };
+}
+```
+
+**How `score` processes ingested jobs:**
+
+```typescript
+// src/commands/score/index.ts
+export async function score(options: ScoreOptions): Promise<ScoreResult> {
+  const jobs = await db.getJobs({ score: null });           // unscored only
+  const extracted = await ai.extractFields(jobs);           // AI: sponsorship, techStack, remote, salary
+  const { pass, filtered } = applyDealbreakers(extracted, profile);
+  await db.updateJobs(filtered, { status: 'filtered' });
+  await batch.submit(pass, { type: 'score', profile });     // stores batchId in batches table
+  return { submitted: pass.length, filtered: filtered.length };
 }
 ```
 
@@ -200,7 +230,27 @@ This design means:
 - Each provider can have its own strategy (email vs manual vs BrowserMCP vs any source)
 - Providers are **independent** — if one source fails, others still work
 
-### 7. External Service Integrations
+### 7. Batch Infrastructure (`src/utils/batch.ts`)
+
+AI batch jobs (scoring, and future batch tailoring) are tracked in a shared `batches` table in SQLite. This keeps batch management generic and decoupled from any specific command.
+
+**`batches` table (planned schema):**
+
+| Field | Type | Notes |
+|---|---|---|
+| `batchId` | string | Provider-assigned batch ID |
+| `type` | string | `"score"`, `"tailor"`, etc. |
+| `aiProvider` | string | `"anthropic"` or `"openai"` |
+| `submittedAt` | string | ISO 8601 timestamp |
+| `status` | string | `"pending"`, `"completed"`, `"failed"` |
+
+**Poll triggers:**
+- `wolf status` — polls all pending batches before displaying results
+- `wolf score --poll` — explicit poll without submitting a new batch
+
+Each `type` registers a handler in `batch.ts`. When a batch completes, the handler writes results back to the `jobs` table. Commands never touch `batchId` directly — batch lifecycle is fully managed by `utils/batch.ts`.
+
+### 8. External Service Integrations
 
 Each external service is accessed only from `src/commands/`, `src/utils/`, or job providers. No direct service calls from CLI/MCP layers.
 
@@ -220,14 +270,43 @@ Each external service is accessed only from `src/commands/`, `src/utils/`, or jo
 ```
 CLI parses args
   → hunt({ role: "Software Engineer", location: "NYC" })
-    → config.load()                          # read wolf.toml from workspace root
+    → config.load()                           # read wolf.toml from workspace root
     → providers.forEach(p => p.hunt(options)) # run all enabled providers
-    → deduplicate(allJobs)                   # merge and dedupe
-    → applyDealbreakers(jobs, profile)        # hard filter before scoring (saves AI calls)
-    → scoreJobs(jobs, profile)               # hybrid: algorithm (workAuth/location/salary/…) + Claude API (roleMatch only)
-    → db.saveJobs(scoredJobs)                # persist to SQLite
-    → return { jobs: scoredJobs, newCount, avgScore }
-  ← CLI formats as table and prints
+    → deduplicate(allJobs)                    # merge and dedupe
+    → db.saveJobs(jobs, { status: 'raw', score: null })  # persist raw to SQLite
+    → return { ingestedCount, newCount }
+  ← CLI prints ingestion summary
+```
+
+### `wolf_add` (AI-orchestrated flow)
+
+```
+User shares job with AI (screenshot / pasted text / URL)
+  → AI (Claude/OpenClaw) extracts { title, company, jdText, url? }
+  → wolf_add({ title, company, jdText })
+    → add({ title, company, jdText })
+      → db.saveJob({ ...structured, status: 'raw', score: null })
+      → return { jobId }
+  → wolf_score({ jobIds: [jobId], single: true })
+    → score({ jobIds: [jobId], single: true })
+      → ai.extractFields([job])               # Claude: structured field extraction
+      → applyDealbreakers(job, profile)       # hard filter check
+      → claude.haiku.score(job, profile)      # synchronous Haiku call, returns immediately
+      → return { submitted: 1, filtered: 0 }
+  ← AI presents score + analysis to user, offers to tailor
+```
+
+### `wolf score` (bulk batch flow)
+
+```
+CLI parses args
+  → score({ profileId })
+    → db.getJobs({ score: null })             # fetch all unscored jobs
+    → ai.extractFields(jobs)                  # Claude: extract sponsorship, techStack, remote, salary from JD text
+    → applyDealbreakers(jobs, profile)        # hard filter — disqualified → status: filtered
+    → ai.submitBatch(remaining, profile)      # submit to Claude Batch API (async, returns immediately)
+    → return { submitted, filtered }
+  ← CLI prints batch summary; scoring completes in background
 ```
 
 ### `wolf tailor --job <job_id>`

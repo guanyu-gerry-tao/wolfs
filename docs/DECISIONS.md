@@ -113,3 +113,24 @@ Decisions made during Milestone 1 are reconstructed retrospectively from commit 
 **Me:** The workspace directory will likely be cloud-synced (iCloud/OneDrive) or zipped and shared alongside resume files. A `.env` file there is a leak waiting to happen.
 **AI:** Agreed. Shell environment variables never enter the workspace. `WOLF_` prefix added to namespace keys away from other tools. `wolf env show` / `wolf env clear` added for discoverability and cleanup.
 **Result:** Adopted. `wolf init` no longer creates `.env`. All keys read from `process.env.WOLF_*`. Users set keys in `~/.zshrc` (Mac/Linux) or Windows User Environment Variables.
+
+---
+
+**2026-03-21 — Separated `wolf hunt` (ingest) and `wolf score` (process) into two commands**
+**Me:** `wolf hunt` was doing too much — fetching, filtering, and scoring in one blocking call. Wanted scoring to run independently, on a schedule, or triggered by an agent.
+**AI:** Ingest and scoring operate at different rates: hunt may run hourly or on-demand; scoring runs async after batch results arrive. Separating them makes each independently automatable.
+**Result:** Adopted. `wolf hunt` fetches raw jobs and saves with `score: null`. `wolf score` reads unscored jobs, extracts structured fields via AI, applies dealbreakers, then submits to Claude Batch API. Both exposed as CLI commands and MCP tools.
+
+---
+
+**2026-03-22 — Added `wolf add` as a manual job ingestion entry point for AI orchestrators**
+**Me:** There was no way for an AI (Claude/OpenClaw) to handle the case where a user shares a job they found online — screenshot, pasted JD, or URL content. Considered `wolf add` as a CLI command but the UX would be painful (user can't type structured JSON or paste a screenshot).
+**AI:** wolf is primarily operated through AI orchestrators, not by users typing commands directly. The AI already has the user's raw content and can extract structure from it. `wolf add` should be an MCP-only interface that accepts already-structured data — the AI caller does the extraction, wolf does the storage. Tool description must make this division explicit.
+**Result:** Adopted. `wolf_add` added as an MCP tool (no CLI equivalent). AI extracts `{ title, company, jdText, url? }` from user input before calling. wolf stores the job and returns a `jobId` for the AI to chain into `wolf_score` or `wolf_tailor`.
+
+---
+
+**2026-03-22 — `wolf score --single` for synchronous immediate scoring via Haiku**
+**Me:** After `wolf add`, the AI should be able to immediately score the job and present results to the user — not wait for an async batch.
+**AI:** Batch API exists for cost savings on bulk jobs. For a single user-initiated job, synchronous Haiku is the right call: seconds instead of minutes/hours, and the marginal cost difference is negligible for one job.
+**Result:** Adopted. `ScoreOptions.single: true` skips the Batch API and calls Haiku synchronously. Default remains batch for bulk scoring.

@@ -17,8 +17,8 @@ export type JobStatus =
  */
 export type Salary = number | "unpaid";
 
-/** Where wolf found the job. */
-export type JobSource = "linkedin" | "handshake" | "email" | "browser_mcp" | "manual";
+/** Where wolf found the job. Set by each provider — not an exhaustive enum. */
+export type JobSource = string;
 
 /**
  * One job listing — the central data object stored in SQLite.
@@ -36,7 +36,10 @@ export interface Job {
   salary: Salary | null;                   // null if not listed
   workAuthorizationRequired: string | null; // e.g. "no sponsorship", "US citizens only"
   score: number | null;                    // AI relevance score 0.0–1.0; null if unscored
-  scoreJustification: string | null;
+  scoreJustification: string | null;       // AI-generated explanation: why the job scored this way,
+                                           // what's a strong match, and any flags or concerns.
+                                           // Persisted permanently — shown in wolf status and used
+                                           // by AI orchestrators to present results to the user.
   status: JobStatus;
   appliedProfileId: string | null;         // which profile was used; null if not yet applied
   tailoredResumePath: string | null;
