@@ -40,6 +40,88 @@ const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 
+export interface SetupProfileInput {
+  name: string;
+  email: string;
+  phone: string;
+  immigrationStatus?: string;
+  targetRoles?: string[];
+  targetLocations?: string[];
+  skills?: string[];
+  linkedinUrl?: string | null;
+  githubUrl?: string | null;
+  websiteUrl?: string | null;
+}
+
+/**
+ * Writes wolf.toml, creates data/ and profile directories, and updates .gitignore.
+ * Called by both CLI `wolf init` and MCP `wolf_setup`.
+ */
+export async function setupWorkspace(workspaceDir: string, profile: SetupProfileInput): Promise<void> {
+  const dataDir = path.join(workspaceDir, 'data');
+  const defaultProfileDir = profileDir(workspaceDir, 'default', 'Default');
+  await fs.mkdir(dataDir, { recursive: true });
+  await fs.mkdir(defaultProfileDir, { recursive: true });
+
+  const config: AppConfig = {
+    profiles: [{
+      id: 'default',
+      label: 'Default',
+      name: profile.name,
+      alternateName: [],
+      email: profile.email,
+      alternateEmail: [],
+      phone: profile.phone,
+      alternatePhone: [],
+      linkedinUrl: profile.linkedinUrl ?? null,
+      githubUrl: profile.githubUrl ?? null,
+      websiteUrl: profile.websiteUrl ?? null,
+      immigrationStatus: profile.immigrationStatus ?? '',
+      currentCity: null,
+      willingToRelocate: true,
+      workAuthTimeline: null,
+      targetRoles: profile.targetRoles ?? ['Software Engineer'],
+      targetLocations: profile.targetLocations ?? ['Remote'],
+      skills: profile.skills ?? [],
+      resumePath: '',
+      portfolioPath: null,
+      transcriptPath: null,
+      targetedCompanyIds: [],
+      scoringPreferences: {
+        preferences: { minSalary: null, preferredCompanySizes: [] },
+        weights: { workAuth: 0.2, roleMatch: 0.35, location: 0.2, remote: 0.1, salary: 0.1, companySize: 0.05 },
+        dealbreakers: { sponsorship: null, remote: null },
+      },
+    }],
+    defaultProfileId: 'default',
+    providers: { linkedin: { enabled: true }, handshake: { enabled: false } },
+    hunt: { minScore: 0.5, maxResults: 50 },
+    tailor: { defaultTemplatePath: null, defaultCoverLetterTone: 'professional' },
+    reach: { defaultEmailTone: 'professional', maxEmailsPerDay: 10 },
+  };
+
+  const configExists = await fs.access(path.join(workspaceDir, 'wolf.toml')).then(() => true).catch(() => false);
+  if (configExists) await backupConfig();
+  await saveConfig(config);
+
+  // .gitignore
+  const gitignorePath = path.join(workspaceDir, '.gitignore');
+  const wolfIgnoreBlock = '\n# wolf\ndata/\n';
+  try {
+    const existing = await fs.readFile(gitignorePath, 'utf-8');
+    if (!existing.includes('# wolf')) await fs.appendFile(gitignorePath, wolfIgnoreBlock, 'utf-8');
+  } catch {
+    await fs.writeFile(gitignorePath, wolfIgnoreBlock.trimStart(), 'utf-8');
+  }
+
+  // data/README.txt
+  await fs.writeFile(
+    path.join(dataDir, 'README.txt'),
+    'This directory is managed by wolf.\nDo NOT commit this directory to version control.\n',
+    'utf-8',
+  );
+}
+
 /**
  * Interactive setup wizard. Run once in a dedicated workspace directory before
  * using any other wolf command.

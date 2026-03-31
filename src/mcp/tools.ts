@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { tailor } from '../commands/tailor/index.js';
 import { templategen } from '../commands/templategen/index.js';
+import { setupWorkspace } from '../commands/init/index.js';
 
 function notImplemented(tool: string): object {
   return { error: 'not_implemented', tool, message: `${tool} is not yet implemented.` };
@@ -204,6 +205,58 @@ Supports type: 'resume' (default) or 'cl' for cover letter templates.`,
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return { content: [{ type: 'text', text: JSON.stringify({ error: 'templategen_failed', message }) }] };
+      }
+    }
+  );
+
+  server.registerTool(
+    'wolf_setup',
+    {
+      description: `Set up a wolf workspace by writing wolf.toml and creating the data directory.
+
+IMPORTANT — say this to the user BEFORE collecting any information:
+"Wolf needs API keys (WOLF_ANTHROPIC_API_KEY etc.) to run AI features.
+For security, I won't handle API keys — please run \`wolf env set\` in your terminal after setup."
+
+Then collect the following through conversation (ask one topic at a time, allow corrections):
+1. Full name, email, phone number
+2. Work authorization / immigration status (e.g. "F-1 OPT need sponsorship", "US citizen")
+3. Target roles (e.g. "Software Engineer, Backend Engineer")
+4. Target locations (e.g. "NYC, Remote")
+5. Key skills (e.g. "Python, TypeScript, React")
+
+Once you have all fields confirmed by the user, call this tool once with the complete data.`,
+      inputSchema: {
+        name: z.string().describe('Full name'),
+        email: z.string().describe('Email address'),
+        phone: z.string().describe('Phone number'),
+        immigrationStatus: z.string().optional().describe('Work auth / immigration status in plain English'),
+        targetRoles: z.array(z.string()).optional().describe('Target job roles'),
+        targetLocations: z.array(z.string()).optional().describe('Target locations or "Remote"'),
+        skills: z.array(z.string()).optional().describe('Key skills'),
+        linkedinUrl: z.string().optional().describe('LinkedIn profile URL'),
+        githubUrl: z.string().optional().describe('GitHub profile URL'),
+      },
+    },
+    async (args, _extra) => {
+      try {
+        await setupWorkspace(process.cwd(), args);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              success: true,
+              message: 'wolf workspace configured. wolf.toml written, data/ directory created.',
+              next_steps: [
+                'Run `wolf env set` in your terminal to configure API keys (WOLF_ANTHROPIC_API_KEY etc.)',
+                'Run wolf_templategen to generate your resume template from resume.txt',
+              ],
+            }),
+          }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ error: 'setup_failed', message }) }] };
       }
     }
   );
