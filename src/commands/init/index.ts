@@ -37,6 +37,7 @@ export function parseDocumentPath(raw: string, allowed: string[]): string | null
 }
 
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
+const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 
@@ -409,19 +410,35 @@ ${dim('These files are attached as-is — wolf will never modify them.')}
   );
 
   // ── Done ──────────────────────────────────────────────────────────────────
-  const hasKey = !!process.env.WOLF_ANTHROPIC_API_KEY;
+  const REQUIRED_KEY = 'WOLF_ANTHROPIC_API_KEY';
+  const ALL_KEYS = ['WOLF_ANTHROPIC_API_KEY', 'WOLF_APIFY_API_TOKEN', 'WOLF_GMAIL_CLIENT_ID', 'WOLF_GMAIL_CLIENT_SECRET'];
 
   console.log(`${bold('✅ wolf workspace initialized!')}
 
   ${bold('wolf.toml')}   — config file (edit manually to tweak settings)
   ${bold('resume/')}     — your resume files
   ${bold('data/')}       — wolf's local database (auto-managed)
+
+${bold('── API Key Status ──')}
 `);
 
-  if (!hasKey) {
-    console.log(`${bold('One more step — set up your API keys.')}\n`);
-    await envSet();
+  for (const key of ALL_KEYS) {
+    const val = process.env[key];
+    if (val) {
+      console.log(`  ${green('✓')} ${bold(key)}`);
+    } else {
+      console.log(`  ${red('✗')} ${dim(key)}  ${dim('(not set)')}`);
+    }
+  }
+  console.log('');
+
+  if (!process.env[REQUIRED_KEY]) {
+    console.log(`${bold('One more step — set up your API keys.')}`);
+    console.log(dim(`Only ${REQUIRED_KEY} is required to get started. Others can be added later.\n`));
+    const setupNow = await confirm({ message: 'Set up keys now?', default: true });
+    if (setupNow) await envSet();
   } else {
+    console.log(dim('Optional keys (Apify, Gmail) can be added later with wolf env set.\n'));
     console.log(`Next: ${bold('wolf hunt')}\n`);
   }
 }
