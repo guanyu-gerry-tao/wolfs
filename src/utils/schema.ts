@@ -42,7 +42,9 @@ export const jobs = sqliteTable('jobs', {
   coverLetterPdfPath: text('coverLetterPdfPath'),
   screenshotPath: text('screenshotPath'),
   outreachDraftPath: text('outreachDraftPath'),
-  masterResumeSnapshot: text('masterResumeSnapshot'),
+  resumeSnapshot: text('resumeSnapshot'),
+  styleSnapshot: text('styleSnapshot'),
+  texSnapshot: text('texSnapshot'),
   createdAt: text('createdAt').notNull(),
   updatedAt: text('updatedAt').notNull(),
 });

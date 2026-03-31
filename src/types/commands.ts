@@ -51,18 +51,29 @@ export interface ScoreResult {
 export interface TailorOptions {
   jobId: string;
   profileId?: string;      // defaults to defaultProfileId
-  resume?: string;         // path to .tex; defaults to profile.resumePath
-  coverLetter?: boolean;   // default true
+  coverLetter?: boolean;   // default false — generate cover letter in addition to resume
   diff?: boolean;          // show before/after comparison
 }
 
 export interface TailorResult {
-  tailoredTexPath: string | null;    // null if resume was not re-tailored
+  tailoredTexPath: string | null;
   tailoredPdfPath: string | null;
   coverLetterMdPath: string | null;
   coverLetterPdfPath: string | null;
   changes: string[];
   matchScore: number;
+}
+
+export interface TemplategenOptions {
+  type: 'resume' | 'cl';   // resume or cover letter template
+  prompt?: string;          // optional user instructions for Claude
+  profileId?: string;       // defaults to defaultProfileId
+}
+
+export interface TemplategenResult {
+  texPath: string;          // absolute path to generated .tex (under general_resume/ or general_cl/)
+  pdfPath: string;          // compiled PDF for review
+  screenshotPath: string;   // first-page PNG for preview
 }
 
 export interface FormField {

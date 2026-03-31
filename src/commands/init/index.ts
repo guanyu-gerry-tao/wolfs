@@ -4,6 +4,7 @@ import path from 'node:path';
 import { input, confirm, select } from '@inquirer/prompts';
 import { backupConfig, saveConfig } from '../../utils/config.js';
 import { envSet } from '../env/index.js';
+import { profileDir } from '../../utils/fs-helpers.js';
 import type { AppConfig } from '../../types/index.js';
 
 /**
@@ -128,10 +129,11 @@ Consider cd-ing to a dedicated folder first, e.g.:
   // ── Step 1: Create workspace directories + prompt for resume ─────────────
   const resumeDir = path.join(process.cwd(), 'resume');
   const dataDir = path.join(process.cwd(), 'data');
-  const snapshotsDir = path.join(process.cwd(), 'data', 'resume', 'snapshots');
+  // Profile directory for 'default' profile — created eagerly so the user can drop files in
+  const defaultProfileDir = profileDir(process.cwd(), 'default', 'Default');
   await fs.mkdir(resumeDir, { recursive: true });
   await fs.mkdir(dataDir, { recursive: true });
-  await fs.mkdir(snapshotsDir, { recursive: true });
+  await fs.mkdir(defaultProfileDir, { recursive: true });
 
   console.log(`
 ${bold('✓ Created resume/ directory.')}

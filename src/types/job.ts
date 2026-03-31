@@ -48,7 +48,9 @@ export interface Job {
   coverLetterPdfPath: string | null;
   screenshotPath: string | null;
   outreachDraftPath: string | null;
-  masterResumeSnapshot: string | null;     // snapshot filename used for this tailor run, e.g. "master_a3f2c1.tex"
+  resumeSnapshot: string | null;           // resume.txt snapshot used at tailor time, e.g. "resume_a3f2c1.txt"
+  styleSnapshot: string | null;            // style_ref.jpg snapshot used at tailor time, e.g. "style_b4e1d2.jpg" (null if no ref image)
+  texSnapshot: string | null;              // resume.tex snapshot used at tailor time, e.g. "resume_c5f3e4.tex"
   createdAt: string;                       // ISO 8601
   updatedAt: string;                       // ISO 8601
 }
@@ -74,7 +76,9 @@ export interface JobUpdate {
   coverLetterPdfPath?: string | null;
   screenshotPath?: string | null;
   outreachDraftPath?: string | null;
-  masterResumeSnapshot?: string | null;
+  resumeSnapshot?: string | null;
+  styleSnapshot?: string | null;
+  texSnapshot?: string | null;
 }
 
 // Re-export CompanySize so callers that need it alongside Job don't need a second import

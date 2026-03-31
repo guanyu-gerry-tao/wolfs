@@ -2,12 +2,13 @@
  * Tests for commands/tailor/index.ts
  *
  * All external I/O is mocked:
- * - initDb / getJob / updateJob — db layer
+ * - initDb / getJob / getCompany / updateJob — db layer
  * - loadConfig — config layer
  * - Anthropic SDK — no real API calls
- * - fs — no real file writes
+ * - fs — no real file reads/writes
  * - child_process execFile — no real pdflatex/pdftoppm calls
- * - resume-snapshot — returns a fixed filename
+ * - resume-snapshot — fixed return values
+ * - fs-helpers — fixed path values
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -18,32 +19,54 @@ import type { Job } from '../../../types/index.js';
 vi.mock('../../../utils/db.js', () => ({
   initDb: vi.fn().mockResolvedValue(undefined),
   getJob: vi.fn(),
+  getCompany: vi.fn().mockResolvedValue({ id: 'company-1', name: 'Google' }),
   updateJob: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../../utils/config.js', () => ({
   loadConfig: vi.fn().mockResolvedValue({
     defaultProfileId: 'default',
-    profiles: [{ id: 'default', resumePath: '/workspace/resume/resume.tex' }],
+    profiles: [{ id: 'default', label: 'Default' }],
   }),
 }));
 
 vi.mock('../../../utils/resume-snapshot.js', () => ({
-  snapshotResume: vi.fn().mockResolvedValue('master_a3f2c1.tex'),
+  fileExists: vi.fn().mockImplementation((p: string) => {
+    if (String(p).endsWith('style_ref.jpg')) return Promise.resolve(false);
+    return Promise.resolve(true);
+  }),
+  snapshotAsset: vi.fn().mockImplementation((_path: string, type: string) => {
+    if (type === 'txt') return Promise.resolve('resume_a3f2c1.txt');
+    if (type === 'tex') return Promise.resolve('template_c5f3e4.tex');
+    return Promise.resolve('style_b4e1d2.jpg');
+  }),
+}));
+
+vi.mock('../../../utils/fs-helpers.js', () => ({
+  profileDir: vi.fn(() => '/workspace/data/default_default'),
+  generalResumeDir: vi.fn(() => '/workspace/data/default_default/general_resume'),
+  jobOutputDir: vi.fn(() => '/workspace/data/default_default/google_swe_job-123'),
+  jobSnapshotsDir: vi.fn((dir: string) => `${dir}/snapshots`),
+  resumeTxtPath: vi.fn(() => '/workspace/data/default_default/resume.txt'),
+  styleRefPath: vi.fn(() => '/workspace/data/default_default/style_ref.jpg'),
 }));
 
 vi.mock('node:fs/promises', () => ({
   default: {
     readFile: vi.fn((filePath: string) => {
-      if (String(filePath).endsWith('.tex')) {
+      if (String(filePath).endsWith('.tex') || String(filePath).endsWith('resume.tex')) {
         return Promise.resolve('\\documentclass{article}\n\\begin{document}hello\\end{document}');
+      }
+      if (String(filePath).endsWith('.txt') || String(filePath).endsWith('resume.txt')) {
+        return Promise.resolve('=======Work Experience=======\n// comment\nEngineer at Acme Corp');
+      }
+      if (String(filePath).endsWith('.md')) {
+        return Promise.resolve('# Jane Doe\njane@example.com | 555-1234\n\nDear Hiring Manager...');
       }
       return Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     }),
     writeFile: vi.fn().mockResolvedValue(undefined),
     mkdir: vi.fn().mockResolvedValue(undefined),
-    mkdtemp: vi.fn().mockResolvedValue('/tmp/wolf-test'),
-    rm: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -66,6 +89,10 @@ vi.mock('@anthropic-ai/sdk', () => {
   };
   return { default: AnthropicMock };
 });
+
+vi.mock('md-to-pdf', () => ({
+  mdToPdf: vi.fn().mockResolvedValue({ filename: '/workspace/data/default_default/google_swe_job-123/cover_letter.pdf' }),
+}));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────
 
@@ -100,7 +127,9 @@ const baseJob = (): Job => ({
   coverLetterPdfPath: null,
   screenshotPath: null,
   outreachDraftPath: null,
-  masterResumeSnapshot: null,
+  resumeSnapshot: null,
+  styleSnapshot: null,
+  texSnapshot: null,
   createdAt: '2026-03-29T00:00:00.000Z',
   updatedAt: '2026-03-29T00:00:00.000Z',
 });
@@ -113,9 +142,8 @@ describe('tailor', () => {
     mockGetJob.mockResolvedValue(baseJob());
     mockLoadConfig.mockResolvedValue({
       defaultProfileId: 'default',
-      profiles: [{ id: 'default', resumePath: '/workspace/resume/resume.tex' }],
+      profiles: [{ id: 'default', label: 'Default', name: 'Jane Doe', email: 'jane@example.com', phone: '555-1234' }],
     } as never);
-    // Restore default Claude response
     mockCreate.mockResolvedValue({
       content: [{
         type: 'text',
@@ -126,7 +154,7 @@ describe('tailor', () => {
 
   it('returns tailoredTexPath containing the jobId', async () => {
     const result = await tailor({ jobId: 'job-123' });
-    expect(result.tailoredTexPath).toContain('job-123.tex');
+    expect(result.tailoredTexPath).toContain('job-123');
   });
 
   it('returns matchScore from WOLF_META', async () => {
@@ -139,11 +167,13 @@ describe('tailor', () => {
     expect(result.changes).toEqual(['Rewrote bullet 1', 'Added keyword X']);
   });
 
-  it('calls updateJob with tailoredResumePath and masterResumeSnapshot', async () => {
+  it('calls updateJob with resumeSnapshot and texSnapshot', async () => {
     await tailor({ jobId: 'job-123' });
     expect(mockUpdateJob).toHaveBeenCalledWith('job-123', expect.objectContaining({
-      tailoredResumePath: expect.stringContaining('job-123.tex'),
-      masterResumeSnapshot: 'master_a3f2c1.tex',
+      tailoredResumePath: expect.stringContaining('resume.tex'),
+      resumeSnapshot: 'resume_a3f2c1.txt',
+      texSnapshot: 'template_c5f3e4.tex',
+      styleSnapshot: null,
     }));
   });
 
@@ -174,5 +204,48 @@ describe('tailor', () => {
     const result = await tailor({ jobId: 'job-123' });
     expect(result.matchScore).toBe(0);
     expect(result.changes).toEqual([]);
+  });
+
+  it('returns null coverLetterMdPath when coverLetter is false (default)', async () => {
+    const result = await tailor({ jobId: 'job-123' });
+    expect(result.coverLetterMdPath).toBeNull();
+    expect(result.coverLetterPdfPath).toBeNull();
+  });
+
+  it('returns coverLetterMdPath and coverLetterPdfPath when coverLetter is true', async () => {
+    // First call returns resume tex; second call returns CL markdown
+    mockCreate
+      .mockResolvedValueOnce({
+        content: [{
+          type: 'text',
+          text: '\\documentclass{article}\n\\begin{document}\nTailored\n\\end{document}\n%WOLF_META{"matchScore":0.9,"changes":[]}',
+        }],
+      })
+      .mockResolvedValueOnce({
+        content: [{ type: 'text', text: '# Jane Doe\njane@example.com | 555-1234\n\nDear Hiring Manager...' }],
+      });
+
+    const result = await tailor({ jobId: 'job-123', coverLetter: true });
+    expect(result.coverLetterMdPath).toContain('cover_letter.md');
+    expect(result.coverLetterPdfPath).toContain('cover_letter.pdf');
+  });
+
+  it('calls updateJob with coverLetterPath when coverLetter is true', async () => {
+    mockCreate
+      .mockResolvedValueOnce({
+        content: [{
+          type: 'text',
+          text: '\\documentclass{article}\n\\begin{document}\nTailored\n\\end{document}\n%WOLF_META{"matchScore":0.9,"changes":[]}',
+        }],
+      })
+      .mockResolvedValueOnce({
+        content: [{ type: 'text', text: '# Jane Doe\nDear Hiring Manager...' }],
+      });
+
+    await tailor({ jobId: 'job-123', coverLetter: true });
+    expect(mockUpdateJob).toHaveBeenCalledWith('job-123', expect.objectContaining({
+      coverLetterPath: expect.stringContaining('cover_letter.md'),
+      coverLetterPdfPath: expect.stringContaining('cover_letter.pdf'),
+    }));
   });
 });

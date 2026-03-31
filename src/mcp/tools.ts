@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { tailor } from '../commands/tailor/index.js';
+import { templategen } from '../commands/templategen/index.js';
 
 function notImplemented(tool: string): object {
   return { error: 'not_implemented', tool, message: `${tool} is not yet implemented.` };
@@ -154,6 +155,32 @@ Requires a jobId. If send is not specified, default to false and show draft firs
         return { content: [{ type: 'text', text: JSON.stringify(missingParam('jobId', 'A jobId is required. Run wolf_hunt first to get a list of jobs.')) }] };
       }
       return { content: [{ type: 'text', text: JSON.stringify(notImplemented('wolf_reach')) }] };
+    }
+  );
+
+  server.registerTool(
+    'wolf_templategen',
+    {
+      description: `Generate a general-purpose resume or cover letter LaTeX template.
+Use this when the user wants to create or regenerate their resume template, or says
+"generate my resume", "create a template", "my resume looks wrong, redo it".
+Requires resume.txt to exist in data/resume/. Optionally uses style_ref.jpg for visual style.
+If the user is unhappy with the result, call again with a prompt describing the changes.
+Supports type: 'resume' (default) or 'cl' for cover letter templates.`,
+      inputSchema: {
+        type: z.enum(['resume', 'cl']).optional().describe('Template type: resume or cover letter (default: resume)'),
+        prompt: z.string().optional().describe('Additional instructions for Claude, e.g. "make the header more minimal"'),
+        profileId: z.string().optional().describe('Profile to use; defaults to defaultProfileId in wolf.toml'),
+      },
+    },
+    async (args) => {
+      try {
+        const result = await templategen({ type: args.type ?? 'resume', prompt: args.prompt, profileId: args.profileId });
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { content: [{ type: 'text', text: JSON.stringify({ error: 'templategen_failed', message }) }] };
+      }
     }
   );
 

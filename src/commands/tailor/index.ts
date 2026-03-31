@@ -1,41 +1,46 @@
 /**
  * tailor/index.ts — AI-powered resume tailoring.
  *
- * Given a job ID, wolf reads the user's master resume and the JD, then asks
- * Claude to generate a tailored resume as a complete .tex file.
+ * Given a job ID, wolf reads the user's general-purpose resume template and their
+ * full content pool, then asks Claude to select the most relevant experiences and
+ * projects for the target JD, producing a tailored .tex.
  *
- * ## Two input paths
+ * ## Prerequisites
  *
- * - .tex source: Claude modifies bullet points while preserving the user's
- *   own LaTeX template and formatting.
- * - .pdf source: wolf converts the first page to a high-res image via pdftoppm,
- *   then passes the image to Claude Vision. Claude sees the visual layout and
- *   generates a new .tex that reflects the original style (wolf's functional
- *   preamble is prepended; Claude authors the visual layout and body).
+ * Before calling wolf_tailor, the user must have run wolf_templategen at least once
+ * to generate the general resume under the profile's data directory. If the file is
+ * missing, tailor throws with a clear message directing the user to run templategen first.
  *
- * ## Master resume snapshots
+ * ## Output location
  *
- * Before calling Claude, wolf hashes the resume file and saves a snapshot to
- * data/resume/snapshots/master_<hash>.<ext>. The snapshot filename is stored
- * on the job record so every tailor run is fully traceable.
- *
- * ## Output
- *
- * - data/tailored/<jobId>.tex  — tailored .tex
- * - data/tailored/<jobId>.pdf  — compiled PDF (via pdflatex)
- * - data/tailored/<jobId>.png  — first-page screenshot (via pdftoppm)
+ *   data/<profileId>_<profileLabel>/<company>_<title>_<jobId>/
+ *     resume.tex
+ *     resume.pdf
+ *     resume.png
+ *     jd.txt
+ *     snapshots/
+ *       resume_<hash>.txt
+ *       style_<hash>.jpg   (if style_ref.jpg exists)
+ *       template_<hash>.tex
  */
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import os from 'node:os';
 import Anthropic from '@anthropic-ai/sdk';
+import { mdToPdf } from 'md-to-pdf';
 import type { TailorOptions, TailorResult } from '../../types/index.js';
-import { initDb, getJob, updateJob } from '../../utils/db.js';
+import { initDb, getJob, getCompany, updateJob } from '../../utils/db.js';
 import { loadConfig } from '../../utils/config.js';
-import { snapshotResume } from '../../utils/resume-snapshot.js';
+import { snapshotAsset, fileExists } from '../../utils/resume-snapshot.js';
+import {
+  generalResumeDir,
+  jobOutputDir,
+  jobSnapshotsDir,
+  resumeTxtPath,
+  styleRefPath,
+} from '../../utils/fs-helpers.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -43,87 +48,37 @@ const execFileAsync = promisify(execFile);
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Reads preamble.tex from the same directory as this file.
- * Used for PDF-source resumes only — prepended to Claude's generated body.
- */
-async function readPreamble(): Promise<string> {
-  const preamblePath = new URL('./preamble.tex', import.meta.url);
-  return fs.readFile(preamblePath, 'utf-8');
-}
-
-/**
- * Converts the first page of a PDF to a high-res PNG via pdftoppm.
- * Returns the PNG as a base64 string.
- *
- * @param pdfPath - Absolute path to the PDF file.
- */
-async function pdfToImageBase64(pdfPath: string): Promise<string> {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wolf-'));
-  const outputPrefix = path.join(tmpDir, 'page');
-  try {
-    // -r 200: 200 DPI — high enough for Claude Vision to read all text clearly
-    // -png: output format
-    // -singlefile: only first page, no page-number suffix
-    await execFileAsync('pdftoppm', ['-r', '200', '-png', '-singlefile', pdfPath, outputPrefix]);
-    const pngPath = `${outputPrefix}.png`;
-    const pngBytes = await fs.readFile(pngPath);
-    return pngBytes.toString('base64');
-  } finally {
-    await fs.rm(tmpDir, { recursive: true, force: true });
-  }
-}
-
-/**
- * Builds the Claude prompt for a .tex-source resume.
- * Claude modifies bullet points to match the JD, preserving template structure.
- */
-function buildTexPrompt(texContent: string, jdText: string, tailorNotes: string | null): string {
-  return `You are an expert resume writer. The user has a LaTeX resume and wants it tailored to a specific job description.
+function buildTailorPrompt(
+  resumeTex: string,
+  resumeTxt: string,
+  jdText: string,
+  tailorNotes: string | null,
+): string {
+  return `You are an expert resume writer. Tailor the user's resume to the job description below.
 
 INSTRUCTIONS:
-- Rewrite bullet points under Experience, Projects, and Skills sections to better match the JD keywords and requirements.
-- Preserve ALL LaTeX formatting, macros, and structure exactly — do not change \\resumeSubheading, \\resumeItem, section order, or any preamble content.
-- Do not add or remove jobs, projects, or sections — only rewrite existing bullet text.
-- Keep the same number of bullet points per entry.
-- Return the complete .tex file. Do not add any explanation or markdown — only raw LaTeX.
+- You have two inputs: a LaTeX resume template (RESUME TEMPLATE) and a full content pool (CONTENT POOL).
+- The RESUME TEMPLATE defines the visual structure and LaTeX macros — preserve it exactly.
+- The CONTENT POOL contains ALL of the user's experiences, projects, skills, and achievements.
+- SELECT the most relevant experiences, projects, and skills from the CONTENT POOL based on the JD.
+- REWRITE selected bullet points to use JD keywords naturally and highlight the strongest match.
+- You may omit less relevant items to keep the resume concise (1–2 pages).
+- Do NOT add experiences or projects that are not in the CONTENT POOL.
+- Return the complete tailored .tex file. No markdown code fences, no explanation — only raw LaTeX.
 - After \\end{document}, append a single line in this exact format (no newlines inside):
-  %WOLF_META{"matchScore":0.85,"changes":["Rewrote X bullet to highlight Y","..."]}
+  %WOLF_META{"matchScore":0.85,"changes":["Selected X over Y because JD emphasises Z","Rewrote bullet to highlight A","..."]}
 
 ${tailorNotes ? `ADDITIONAL INSTRUCTIONS FROM USER:\n${tailorNotes}\n` : ''}
 JOB DESCRIPTION:
 ${jdText}
 
-RESUME (.tex):
-${texContent}`;
+RESUME TEMPLATE (LaTeX structure to preserve):
+${resumeTex}
+
+CONTENT POOL (all available experiences — select and adapt the best fit):
+${resumeTxt}`;
 }
 
-/**
- * Builds the Claude prompt for a PDF-source resume (image input).
- * Claude sees the visual layout and generates a new complete .tex.
- */
-function buildPdfPrompt(jdText: string, tailorNotes: string | null): string {
-  return `You are an expert resume writer and LaTeX typesetter. The image shows the user's current resume. Generate a tailored LaTeX resume targeting the job description below.
-
-INSTRUCTIONS:
-- Extract all content from the resume image (work experience, education, projects, skills, contact info).
-- Match the visual style you see in the image — reproduce the layout, spacing, and formatting approach as closely as possible in LaTeX.
-- Rewrite and reorder content to best match the JD — highlight relevant experience, use JD keywords naturally.
-- Generate a complete, compilable .tex file. Start with \\documentclass and include everything through \\end{document}.
-- The file must compile with pdflatex without any external .cls or .sty files not in a standard TeX Live installation.
-- Return only raw LaTeX — no markdown code fences, no explanation.
-- After \\end{document}, append a single line in this exact format (no newlines inside):
-  %WOLF_META{"matchScore":0.85,"changes":["Highlighted X skill from JD","Reordered sections to lead with Y","..."]}
-
-${tailorNotes ? `ADDITIONAL INSTRUCTIONS FROM USER:\n${tailorNotes}\n` : ''}
-JOB DESCRIPTION:
-${jdText}`;
-}
-
-/**
- * Parses the %WOLF_META comment appended by Claude after \\end{document}.
- * Returns defaults if the comment is missing or malformed.
- */
 function parseWolfMeta(texOutput: string): { matchScore: number; changes: string[] } {
   const match = texOutput.match(/%WOLF_META(\{.*\})/);
   if (!match) return { matchScore: 0, changes: [] };
@@ -138,24 +93,18 @@ function parseWolfMeta(texOutput: string): { matchScore: number; changes: string
   }
 }
 
-/** Validates that the output looks like a LaTeX document. */
 function validateTex(tex: string): void {
   if (!tex.includes('\\begin{document}') || !tex.includes('\\end{document}')) {
     throw new Error('Claude returned invalid LaTeX — missing \\begin{document} or \\end{document}.');
   }
 }
 
-/**
- * Compiles a .tex file to PDF via pdflatex.
- * Runs twice to resolve cross-references.
- * Returns the output PDF path.
- */
 async function compileTex(texPath: string): Promise<string> {
   const dir = path.dirname(texPath);
   const args = ['-interaction=nonstopmode', '-output-directory', dir, texPath];
   try {
     await execFileAsync('pdflatex', args);
-    await execFileAsync('pdflatex', args); // second pass for references
+    await execFileAsync('pdflatex', args);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`pdflatex compilation failed: ${msg}`);
@@ -163,10 +112,6 @@ async function compileTex(texPath: string): Promise<string> {
   return texPath.replace(/\.tex$/, '.pdf');
 }
 
-/**
- * Converts the first page of a PDF to a PNG screenshot via pdftoppm.
- * Returns the screenshot path.
- */
 async function pdfToScreenshot(pdfPath: string): Promise<string> {
   const dir = path.dirname(pdfPath);
   const base = path.basename(pdfPath, '.pdf');
@@ -175,38 +120,120 @@ async function pdfToScreenshot(pdfPath: string): Promise<string> {
   return `${outputPrefix}.png`;
 }
 
+function stripComments(txt: string): string {
+  return txt
+    .split('\n')
+    .filter(line => !line.trimStart().startsWith('//'))
+    .join('\n');
+}
+
+/**
+ * Builds the Claude prompt for generating a tailored cover letter.
+ */
+function buildClPrompt(
+  resumeTxt: string,
+  jdText: string,
+  profileInfo: { name: string; email: string; phone: string },
+  clNotes: string | null,
+): string {
+  return `You are an expert cover letter writer. Write a tailored cover letter for the job description below.
+
+INSTRUCTIONS:
+- Write in a professional but genuine tone.
+- Draw only from the RESUME CONTENT — do not invent experiences or skills.
+- Highlight 2–3 specific experiences from the resume that are most relevant to the JD.
+- Keep it to 3–4 paragraphs, under 400 words.
+- Output in Markdown format — use the following structure exactly:
+  - First line: applicant name (e.g. "# John Doe")
+  - Second line: contact info (email | phone)
+  - Blank line
+  - Date (today's date)
+  - Blank line
+  - Body paragraphs
+  - Closing and signature
+- Do NOT add a subject line or "Dear Hiring Manager" unless you know the recipient's name.
+
+APPLICANT:
+Name: ${profileInfo.name}
+Email: ${profileInfo.email}
+Phone: ${profileInfo.phone}
+
+${clNotes ? `ADDITIONAL INSTRUCTIONS FROM USER:\n${clNotes}\n` : ''}
+JOB DESCRIPTION:
+${jdText}
+
+RESUME CONTENT:
+${resumeTxt}`;
+}
+
+/**
+ * Compiles a Markdown file to PDF via md-to-pdf.
+ * Returns the output PDF path.
+ */
+async function compileMdToPdf(mdPath: string): Promise<string> {
+  const pdfPath = mdPath.replace(/\.md$/, '.pdf');
+  const content = await fs.readFile(mdPath, 'utf-8');
+  const result = await mdToPdf({ content }, { dest: pdfPath });
+  if (!result || !result.filename) {
+    throw new Error(`md-to-pdf failed to compile: ${mdPath}`);
+  }
+  return pdfPath;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-/**
- * Tailors a resume to a specific job and generates output files.
- *
- * @param options - Must include `jobId`; other fields override profile defaults.
- * @returns Paths to generated files, list of changes, and match score.
- * @throws If the job does not exist, resume file is missing, or Claude API fails.
- */
 export async function tailor(options: TailorOptions): Promise<TailorResult> {
   const workspaceDir = process.cwd();
   await initDb(workspaceDir);
 
-  // ── 1. Load job and profile ────────────────────────────────────────────────
+  // ── 1. Load job, company, and profile ──────────────────────────────────────
   const job = await getJob(options.jobId);
   if (!job) throw new Error(`Job not found: ${options.jobId}`);
+
+  const company = await getCompany(job.companyId);
+  const companyName = company?.name ?? 'unknown';
 
   const config = await loadConfig();
   const profileId = options.profileId ?? config.defaultProfileId;
   const profile = config.profiles.find(p => p.id === profileId);
   if (!profile) throw new Error(`Profile not found: ${profileId}`);
 
-  const resumePath = options.resume ?? profile.resumePath;
-  const ext = path.extname(resumePath).toLowerCase();
+  // ── 2. Resolve paths ───────────────────────────────────────────────────────
+  const txtPath = resumeTxtPath(workspaceDir, profile.id, profile.label);
+  const genResumeDir = generalResumeDir(workspaceDir, profile.id, profile.label);
+  const texPath = path.join(genResumeDir, 'resume.tex');
 
-  // ── 2. Snapshot the master resume ─────────────────────────────────────────
-  const snapshotFilename = await snapshotResume(resumePath, workspaceDir);
+  if (!(await fileExists(txtPath))) {
+    throw new Error(
+      `resume.txt not found at ${txtPath}. ` +
+      'Provide the resume content file for this profile first.',
+    );
+  }
+  if (!(await fileExists(texPath))) {
+    throw new Error(
+      `resume.tex not found at ${texPath}. ` +
+      'Run wolf_templategen first to generate the resume template.',
+    );
+  }
 
-  // ── 3. Load tailor_notes.md if present (see issue #37) ────────────────────
-  const tailorNotesPath = path.join(workspaceDir, 'data', 'jobs', job.id, 'tailor_notes.md');
+  // ── 3. Read inputs ─────────────────────────────────────────────────────────
+  const [rawTxt, resumeTex] = await Promise.all([
+    fs.readFile(txtPath, 'utf-8'),
+    fs.readFile(texPath, 'utf-8'),
+  ]);
+  const resumeContent = stripComments(rawTxt);
+
+  // ── 4. Prepare job output directory ───────────────────────────────────────
+  const jobDir = jobOutputDir(workspaceDir, profile.id, profile.label, companyName, job.title, job.id);
+  await fs.mkdir(jobDir, { recursive: true });
+
+  // ── 5. Write jd.txt ───────────────────────────────────────────────────────
+  await fs.writeFile(path.join(jobDir, 'jd.txt'), job.description, 'utf-8');
+
+  // ── 6. Load tailor_notes.md if present ────────────────────────────────────
+  const tailorNotesPath = path.join(jobDir, 'tailor_notes.md');
   let tailorNotes: string | null = null;
   try {
     tailorNotes = await fs.readFile(tailorNotesPath, 'utf-8');
@@ -214,81 +241,97 @@ export async function tailor(options: TailorOptions): Promise<TailorResult> {
     // not present — fine
   }
 
-  // ── 4. Call Claude ─────────────────────────────────────────────────────────
+  // ── 7. Call Claude ─────────────────────────────────────────────────────────
   const client = new Anthropic({ apiKey: process.env.WOLF_ANTHROPIC_API_KEY });
-  let texOutput: string;
+  const prompt = buildTailorPrompt(resumeTex, resumeContent, job.description, tailorNotes);
 
-  if (ext === '.tex') {
-    // .tex path: modify bullet points, preserve user's template
-    const texContent = await fs.readFile(resumePath, 'utf-8');
-    const prompt = buildTexPrompt(texContent, job.description, tailorNotes);
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: prompt }],
-    });
-    texOutput = response.content[0].type === 'text' ? response.content[0].text : '';
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: prompt }],
+  });
 
-  } else if (ext === '.pdf') {
-    // .pdf path: convert to image, pass to Claude Vision, generate new .tex
-    const imageBase64 = await pdfToImageBase64(resumePath);
-    const preamble = await readPreamble();
-    const prompt = buildPdfPrompt(job.description, tailorNotes);
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      messages: [{
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: { type: 'base64', media_type: 'image/png', data: imageBase64 },
-          },
-          { type: 'text', text: prompt },
-        ],
-      }],
-    });
-    const body = response.content[0].type === 'text' ? response.content[0].text : '';
-    // Strip any markdown code fences Claude might add despite instructions
-    const cleanBody = body.replace(/^```(?:latex|tex)?\n?/m, '').replace(/\n?```$/m, '');
-    texOutput = preamble + '\n' + cleanBody;
-
-  } else {
-    throw new Error(`Unsupported resume format: ${ext}. Use .tex or .pdf.`);
-  }
+  let texOutput = response.content[0].type === 'text' ? response.content[0].text : '';
+  texOutput = texOutput.replace(/^```(?:latex|tex)?\n?/m, '').replace(/\n?```$/m, '').trim();
 
   validateTex(texOutput);
   const { matchScore, changes } = parseWolfMeta(texOutput);
-
-  // Strip the %WOLF_META line from the actual .tex file
   const cleanTex = texOutput.replace(/%WOLF_META\{.*\}\s*$/, '').trimEnd() + '\n';
 
-  // ── 5. Write .tex output ───────────────────────────────────────────────────
-  const tailoredDir = path.join(workspaceDir, 'data', 'tailored');
-  await fs.mkdir(tailoredDir, { recursive: true });
-  const tailoredTexPath = path.join(tailoredDir, `${job.id}.tex`);
+  // ── 8. Write tailored .tex ─────────────────────────────────────────────────
+  const tailoredTexPath = path.join(jobDir, 'resume.tex');
   await fs.writeFile(tailoredTexPath, cleanTex, 'utf-8');
 
-  // ── 6. Compile .tex → PDF ─────────────────────────────────────────────────
+  // ── 9. Compile PDF ─────────────────────────────────────────────────────────
   const tailoredPdfPath = await compileTex(tailoredTexPath);
 
-  // ── 7. Generate screenshot from PDF ───────────────────────────────────────
+  // ── 10. Screenshot ─────────────────────────────────────────────────────────
   const screenshotPath = await pdfToScreenshot(tailoredPdfPath);
 
-  // ── 8. Update job record ───────────────────────────────────────────────────
+  // ── 11. Cover letter (optional) ───────────────────────────────────────────
+  let coverLetterMdPath: string | null = null;
+  let coverLetterPdfPath: string | null = null;
+
+  if (options.coverLetter) {
+    // Read cl_notes.md if present
+    const clNotesPath = path.join(jobDir, 'cl_notes.md');
+    let clNotes: string | null = null;
+    try {
+      clNotes = await fs.readFile(clNotesPath, 'utf-8');
+    } catch {
+      // not present — fine
+    }
+
+    const clPrompt = buildClPrompt(
+      resumeContent,
+      job.description,
+      { name: profile.name, email: profile.email, phone: profile.phone },
+      clNotes,
+    );
+
+    const clResponse = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 2048,
+      messages: [{ role: 'user', content: clPrompt }],
+    });
+
+    const clMd = clResponse.content[0].type === 'text' ? clResponse.content[0].text : '';
+    coverLetterMdPath = path.join(jobDir, 'cover_letter.md');
+    await fs.writeFile(coverLetterMdPath, clMd, 'utf-8');
+    coverLetterPdfPath = await compileMdToPdf(coverLetterMdPath);
+  }
+
+  // ── 12. Snapshot inputs (must come after CL so all outputs are final) ──────
+  const snapshotsDir = jobSnapshotsDir(jobDir);
+  const styleRef = styleRefPath(workspaceDir, profile.id, profile.label);
+  const hasStyleRef = await fileExists(styleRef);
+
+  const [resumeSnapshot, texSnapshot] = await Promise.all([
+    snapshotAsset(txtPath, 'txt', snapshotsDir),
+    snapshotAsset(texPath, 'tex', snapshotsDir),
+  ]);
+  const styleSnapshot = hasStyleRef
+    ? await snapshotAsset(styleRef, 'jpg', snapshotsDir)
+    : null;
+
+  // ── 13. Update job record ──────────────────────────────────────────────────
   await updateJob(job.id, {
     tailoredResumePath: tailoredTexPath,
     tailoredResumePdfPath: tailoredPdfPath,
+    coverLetterPath: coverLetterMdPath,
+    coverLetterPdfPath,
     screenshotPath,
-    masterResumeSnapshot: snapshotFilename,
+    resumeSnapshot,
+    styleSnapshot,
+    texSnapshot,
     status: 'reviewed',
   });
 
   return {
     tailoredTexPath,
     tailoredPdfPath,
-    coverLetterMdPath: null,   // cover letter — issue #46
-    coverLetterPdfPath: null,
+    coverLetterMdPath,
+    coverLetterPdfPath,
     changes,
     matchScore,
   };
