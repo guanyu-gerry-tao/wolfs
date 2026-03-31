@@ -280,10 +280,13 @@ export async function envClear(): Promise<void> {
     console.log(`  ${green('✓')} Cleaned ${file}`);
   }
 
+  const unsetCmd = WOLF_KEYS.map(k => `unset ${k}`).join(' && ');
   console.log(`
-${bold('Done.')} Reload your shell to apply:
-  ${bold('source ~/.zshrc')}
+${bold('Done.')} RC files cleaned.
 
-Current session still has the keys in memory — open a new terminal to fully clear them.
+To clear from your ${bold('current session')} too, run:
+  ${bold(unsetCmd)}
+
+Or simply open a new terminal.
 `);
 }
