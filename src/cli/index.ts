@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import { add } from '../commands/add/index.js';
 import { hunt } from '../commands/hunt/index.js';
 import { score } from '../commands/score/index.js';
 import { tailor } from '../commands/tailor/index.js';
@@ -23,6 +24,29 @@ program
   .description('Interactive setup wizard')
   .action(async () => {
     await init();
+  });
+
+program
+  .command('add')
+  .description('Add a single job to the database')
+  .requiredOption('-t, --title <title>', 'Job title')
+  .requiredOption('-c, --company <company>', 'Company name')
+  .requiredOption('-d, --jd <text>', 'Job description text')
+  .option('-u, --url <url>', 'Job posting URL')
+  .option('-l, --location <location>', 'Work location')
+  .option('--remote', 'Mark as remote')
+  .option('-p, --profile <id>', 'Profile to use')
+  .action(async (opts) => {
+    const result = await add({
+      title: opts.title,
+      company: opts.company,
+      jdText: opts.jd,
+      url: opts.url,
+      location: opts.location,
+      remote: opts.remote,
+      profileId: opts.profile,
+    });
+    console.log(JSON.stringify(result, null, 2));
   });
 
 program
