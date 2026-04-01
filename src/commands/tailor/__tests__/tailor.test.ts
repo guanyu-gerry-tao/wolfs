@@ -36,7 +36,7 @@ vi.mock('../../../utils/resume-snapshot.js', () => ({
     return Promise.resolve(true);
   }),
   snapshotAsset: vi.fn().mockImplementation((_path: string, type: string) => {
-    if (type === 'txt') return Promise.resolve('resume_a3f2c1.txt');
+    if (type === 'txt') return Promise.resolve('resume_a3f2c1.md');
     if (type === 'tex') return Promise.resolve('template_c5f3e4.tex');
     return Promise.resolve('style_b4e1d2.jpg');
   }),
@@ -47,7 +47,7 @@ vi.mock('../../../utils/fs-helpers.js', () => ({
   generalResumeDir: vi.fn(() => '/workspace/data/default_default/general_resume'),
   jobOutputDir: vi.fn(() => '/workspace/data/default_default/google_swe_job-123'),
   jobSnapshotsDir: vi.fn((dir: string) => `${dir}/snapshots`),
-  resumeTxtPath: vi.fn(() => '/workspace/data/default_default/resume.txt'),
+  resumeTxtPath: vi.fn(() => '/workspace/data/default_default/resume_pool.md'),
   styleRefPath: vi.fn(() => '/workspace/data/default_default/style_ref.jpg'),
 }));
 
@@ -60,7 +60,7 @@ vi.mock('node:fs/promises', () => ({
       if (String(filePath).endsWith('.tex') || String(filePath).endsWith('resume.tex')) {
         return Promise.resolve('\\documentclass{article}\n\\begin{document}hello\\end{document}');
       }
-      if (String(filePath).endsWith('.txt') || String(filePath).endsWith('resume.txt')) {
+      if (String(filePath).endsWith('.md') || String(filePath).endsWith('resume_pool.md')) {
         return Promise.resolve('=======Work Experience=======\n// comment\nEngineer at Acme Corp');
       }
       if (String(filePath).endsWith('.md')) {
@@ -197,7 +197,7 @@ describe('tailor', () => {
     await tailor({ jobId: 'job-123' });
     expect(mockUpdateJob).toHaveBeenCalledWith('job-123', expect.objectContaining({
       tailoredResumePath: expect.stringContaining('resume.tex'),
-      resumeSnapshot: 'resume_a3f2c1.txt',
+      resumeSnapshot: 'resume_a3f2c1.md',
       texSnapshot: 'template_c5f3e4.tex',
       styleSnapshot: null,
     }));

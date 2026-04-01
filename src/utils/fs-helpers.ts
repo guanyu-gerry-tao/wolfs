@@ -5,7 +5,7 @@
  *
  *   data/
  *   └── <profileId>_<profileLabel>/
- *       ├── resume.txt
+ *       ├── resume_pool.md
  *       ├── style_ref.jpg
  *       ├── general_resume/
  *       ├── general_cl/
@@ -102,10 +102,10 @@ export function jobSnapshotsDir(jobDir: string): string {
 }
 
 /**
- * Returns the absolute path to resume.txt for a profile.
+ * Returns the absolute path to resume_pool.md for a profile.
  */
 export function resumeTxtPath(workspaceDir: string, profileId: string, profileLabel: string): string {
-  return path.join(profileDir(workspaceDir, profileId, profileLabel), 'resume.txt');
+  return path.join(profileDir(workspaceDir, profileId, profileLabel), 'resume_pool.md');
 }
 
 /**

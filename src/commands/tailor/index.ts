@@ -123,7 +123,7 @@ async function pdfToScreenshot(pdfPath: string): Promise<string> {
 function stripComments(txt: string): string {
   return txt
     .split('\n')
-    .filter(line => !line.trimStart().startsWith('//'))
+    .filter(line => !line.trimStart().startsWith('>'))
     .join('\n');
 }
 
@@ -326,7 +326,7 @@ export async function tailor(options: TailorOptions): Promise<TailorResult> {
 
   if (!(await fileExists(txtPath))) {
     throw new Error(
-      `resume.txt not found at ${txtPath}. ` +
+      `resume_pool.md not found at ${txtPath}. ` +
       'Provide the resume content file for this profile first.',
     );
   }

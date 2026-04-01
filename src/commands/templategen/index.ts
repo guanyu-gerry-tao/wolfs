@@ -105,12 +105,12 @@ function validateTex(tex: string): void {
 }
 
 /**
- * Strips // comment lines from resume.txt before sending to Claude.
+ * Strips > comment lines from resume_pool.md before sending to Claude.
  */
 function stripComments(txt: string): string {
   return txt
     .split('\n')
-    .filter(line => !line.trimStart().startsWith('//'))
+    .filter(line => !line.trimStart().startsWith('>'))
     .join('\n');
 }
 
@@ -169,7 +169,7 @@ export async function templategen(options: TemplategenOptions): Promise<Template
   const txtPath = resumeTxtPath(workspaceDir, profile.id, profile.label);
   if (!(await fileExists(txtPath))) {
     throw new Error(
-      `resume.txt not found at ${txtPath}. ` +
+      `resume_pool.md not found at ${txtPath}. ` +
       'Provide the resume content file for this profile first.',
     );
   }
