@@ -2,107 +2,68 @@
 
 Step-by-step instructions for testing wolf locally before merging to main.
 
----
+> **Important:** `wolf init` creates `wolf.toml` and `data/` in your **current directory**.
+> Always `cd` to a dedicated test folder before running — never run it inside the wolf project repo.
 
-## Prerequisites
-
-> **Important:** `wolf init` creates `wolf.toml`, `data/`, and `resume/` in your **current directory**.
-> Always `cd` to a dedicated test folder before running it — never run it inside the wolf project repo.
+## Setup
 
 ```bash
-# 0. Create a dedicated test workspace (do this first!)
-mkdir ~/test-wolf && cd ~/test-wolf
-
-# 1. Build and install globally (run from the wolf repo)
+# Build and install globally (run from the wolf repo)
 cd ~/path/to/wolf
 npm run build
-npm link            # registers 'wolf' as a global CLI command
-wolf --help         # verify it works
+npm link
+wolf --help   # verify it works
 
-# 2. Confirm API key is set
-wolf env show
-# WOLF_ANTHROPIC_API_KEY should show as [set]
-
-# 3. Switch to your test workspace
-cd ~/test-wolf
+# Create a dedicated test workspace
+mkdir ~/test-wolf && cd ~/test-wolf
 ```
 
 ---
 
-## 1. CLI: `wolf init`
+## UC-01 · `wolf init` (CLI)
 
 ```bash
-mkdir ~/test-wolf && cd ~/test-wolf
+cd ~/test-wolf
 wolf init
 ```
 
-**What to check:**
-- [ ] Prompts for name, email, phone, work auth, target roles, target locations
-- [ ] Creates `wolf.toml` in `~/test-wolf/`
-- [ ] Creates `data/` directory
-- [ ] Adds `data/` to `.gitignore`
-- [ ] If `WOLF_ANTHROPIC_API_KEY` not set, prompts to run `wolf env set`
-- [ ] If re-running with existing `wolf.toml`, warns and backs up to `wolf.toml.backup1`
+**Scenario 1A — Happy path**
+- [ ] Displays current pwd and asks for confirmation
+- [ ] Prompts in sequence: name, email, phone, LinkedIn URL, target roles, target locations, work auth, willing to relocate
+- [ ] Optional fields can be skipped with Enter
+- [ ] Opens `resume_pool.md` in default editor; waits for editor to close
+- [ ] Writes `wolf.toml` to `~/test-wolf/`
+- [ ] Prints summary of all `WOLF_*` keys (set / not set)
+- [ ] Prints available CLI commands and suggests `--help`
 
-**Sample inputs:**
+**Scenario 1B — Cancel on confirmation**
+- [ ] When user answers `n` at the confirmation prompt → exits without creating `wolf.toml`
+
+**Scenario 1C — Directory already has files**
+```bash
+touch ~/test-wolf/somefile.txt
+wolf init
 ```
-Name:              Alex Chen
-Email:             alex@example.com
-Phone:             555-000-0001
-Work auth:         F-1 OPT, need sponsorship
-Target roles:      Software Engineer, Backend Engineer
-Target locations:  NYC, Remote
+- [ ] Shows additional warning about existing files
+- [ ] Does not proceed until user confirms twice
+
+**Scenario 1D — API key not set**
+```bash
+unset WOLF_ANTHROPIC_API_KEY
+wolf init
 ```
+- [ ] Prints setup instructions for the missing key
+- [ ] Init completes successfully (key not required)
+
+**Scenario 1E — Re-run with existing `wolf.toml`**
+```bash
+wolf init   # run a second time
+```
+- [ ] Detects existing `wolf.toml`, warns user, and asks for confirmation before overwriting
 
 ---
 
-## 2. CLI: `wolf add`
-
-```bash
-cd ~/test-wolf
-wolf add \
-  --title "Software Engineer, Backend Platform" \
-  --company "Stripe" \
-  --jd "$(cat ~/path/to/wolf/samples/jd/jd1_clean_bullets.txt)"
-```
-
-**What to check:**
-- [ ] Returns a job object with a `jobId`
-- [ ] No errors
-
-Note the `jobId` — you'll need it for `wolf tailor`.
-
----
-
-## 3. CLI: `wolf tailor`
-
-Place a `.tex` resume in `~/test-wolf/resume/` and update `wolf.toml` with `resumePath`.
-
-```bash
-cp ~/path/to/wolf/samples/resume/Resume.tex ~/test-wolf/resume/
-
-# Edit wolf.toml: set resumePath = "resume/Resume.tex"
-
-wolf tailor --job <jobId>
-```
-
-**What to check:**
-- [ ] Produces a tailored `.tex` and `.pdf` in `data/<profile>/<jobSlug>/`
-- [ ] Resume fits within 1 page (or `maxResumePages` if set)
-- [ ] No orphan words (single word on last line of a bullet point)
-- [ ] Refinement loop logged (should see up to 5 iterations, exits early on LGTM)
-- [ ] Screenshot `.png` is generated
-- [ ] Returns `tailoredPdfPath`, `screenshotPath`, `coverLetterPdfPath` (if generated)
-
-**Cover letter:**
-```bash
-wolf tailor --job <jobId> --cover-letter
-```
-- [ ] Cover letter PDF is ≤ 1 page
-
----
-
-## 4. MCP: `wolf_setup`
+## UC-01.1 · `wolf init` (MCP)
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
@@ -112,6 +73,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
     "wolf": {
       "command": "wolf",
       "args": ["mcp", "serve"],
+      "cwd": "/Users/<you>/test-wolf",
       "env": {
         "WOLF_ANTHROPIC_API_KEY": "sk-ant-..."
       }
@@ -122,40 +84,247 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 Restart Claude Desktop. In a new conversation:
 
-> "Help me set up wolf"
+> "I just installed wolf — what do I need to do?"
 
-**What to check:**
-- [ ] Claude warns about API keys before asking for profile info ("run `wolf env set` in your terminal")
-- [ ] Claude collects name, email, phone, work auth, roles, locations through conversation
-- [ ] Claude calls `wolf_setup` once at the end with all fields
-- [ ] `wolf.toml` is created in the directory where `wolf mcp serve` was launched
-- [ ] Response includes next steps: run `wolf env set`, then `wolf_templategen`
-
----
-
-## 5. MCP: `wolf_tailor`
-
-In Claude Desktop (after wolf_setup), with a job already added:
-
-> "Tailor my resume for job ID \<jobId\>"
-
-**What to check:**
-- [ ] Claude calls `wolf_tailor` with the job ID
-- [ ] Response includes an inline resume screenshot
-- [ ] Response lists changes made and match score
-- [ ] Response shows file paths in code blocks for copy-paste upload
+- [ ] AI reads `wolf_setup` tool description and asks for profile fields
+- [ ] AI collects name, email, phone, LinkedIn, roles, locations, work auth
+- [ ] AI calls `wolf_setup` once with all fields
+- [ ] `wolf.toml` is created in the `cwd` specified above
+- [ ] AI displays generated `resume_pool.md` and `wolf.toml` contents and asks for confirmation
+- [ ] If user requests changes → AI calls `wolf_setup` again with corrected data
+- [ ] If API key not set → AI explains how to set it and provides copyable export command
 
 ---
 
-## 6. Dev cleanup between test runs
+## UC-02 · `wolf hunt`
 
 ```bash
 cd ~/test-wolf
-
-wolf dev clean --jobs         # remove job output dirs + clear DB (keep templates)
-wolf dev clean --all          # above + remove generated templates
-wolf dev clean --dangerousall # wipe all data/ contents (requires typing "yes")
+wolf hunt
 ```
+
+**Scenario 2A — Happy path**
+- [ ] Reads provider list from `wolf.toml`
+- [ ] Fetches jobs and saves with `status: raw`, `score: null`
+- [ ] Prints: N fetched, M duplicates skipped, K new jobs saved
+- [ ] Hints at running `wolf score` next
+
+**Scenario 2B — Deduplication**
+- [ ] Run `wolf hunt` twice — second run shows duplicates skipped, DB unchanged
+
+**Scenario 2C — Provider failure**
+- [ ] If one provider errors → logs the error, continues with other providers, still saves results
+
+**Scenario 2D — No providers configured**
+- [ ] Prints setup hint and exits cleanly
+
+---
+
+## UC-03 · `wolf score`
+
+```bash
+wolf score
+```
+
+**Scenario 3A — Batch scoring**
+- [ ] Reads all jobs with `score: null` OR `status: score_error`
+- [ ] Submits to Claude Batch API; CLI prints progress while polling
+- [ ] Results written to SQLite: structured fields, filter status, score (0.0–1.0), justification
+- [ ] Prints summary: X high fit, Y medium, Z filtered, W errors
+
+**Scenario 3B — Single job**
+```bash
+wolf score --jobid <jobId>
+```
+- [ ] Skips Batch API, makes synchronous call
+- [ ] DB updated immediately
+
+**Scenario 3C — Malformed response retry**
+- [ ] On malformed response → logs "Retrying job N/M..."
+- [ ] On second failure → marks `status: score_error` with reason, continues
+
+**Scenario 3D — Retry picks up score_error jobs**
+- [ ] Run `wolf score` after a previous run that left some `score_error` jobs → those jobs are included
+
+---
+
+## UC-04 · `wolf list`
+
+```bash
+wolf list --jobs
+wolf list --companies
+```
+
+**Scenario 4A — List jobs, no filter**
+- [ ] Returns table: company, title, score, filter status, selected, JD link
+- [ ] Sorted by score descending
+
+**Scenario 4B — Filters**
+```bash
+wolf list --jobs --score 0.7
+wolf list --jobs --selected
+wolf list --jobs --status raw
+wolf list --jobs --date 7
+wolf list --jobs --fromcompany <companyId>
+```
+- [ ] Each filter returns only matching results
+- [ ] Multiple filters can be combined
+
+**Scenario 4C — No results**
+- [ ] Prints a helpful hint instead of empty table
+
+**Scenario 4D — List companies**
+- [ ] Returns table: companyId, company name
+
+---
+
+## UC-05 · `wolf select`
+
+```bash
+wolf select
+```
+
+**Scenario 5A — Interactive TUI**
+- [ ] Opens TUI with scored jobs sorted by score descending
+- [ ] Shows company, title, score, status, JD URL (plain text)
+- [ ] User can toggle selection; DB updates `selected` field immediately
+
+**Scenario 5B — MCP flow**
+
+In Claude Desktop, after `wolf_list` returns numbered results:
+
+> "Select jobs 1, 3, and 5"
+
+- [ ] AI maps numbers to jobIds and calls `wolf_select` with `{ jobIds: [...], action: "select" }`
+- [ ] AI confirms selection to user
+- [ ] Deselect: AI calls `wolf_select` with `action: "unselect"`
+
+---
+
+## UC-06 · `wolf tailor`
+
+Place a `.tex` resume in the profile folder and ensure `profile.toml` has `resumePath` set.
+
+```bash
+wolf tailor
+```
+
+**Scenario 6A — Batch tailor all selected jobs**
+- [ ] Reads all `selected: true` AND (`status: scored` OR `status: tailor_error`) jobs
+- [ ] Submits batch to Claude Batch API; CLI prints progress
+- [ ] Writes tailored `.tex` per job
+- [ ] Compiles each `.tex` to PDF via `xelatex`
+- [ ] Takes screenshots (1 JPG per page, max 2 pages)
+- [ ] Sends screenshots + `.tex` to Claude for visual review
+- [ ] On "return updated .tex" → recompiles (max 3 iterations total)
+- [ ] On LGTM → continues to next job
+- [ ] After 3 iterations: 1 page → accepted; 2 pages → `status: tailor_error`
+- [ ] Prints summary: tailored, errors, output file paths
+
+**Scenario 6B — Single job**
+```bash
+wolf tailor --jobid <jobId>
+```
+- [ ] Skips batch; synchronous call
+- [ ] Same compile + review loop applies
+
+**Scenario 6C — Diff flag**
+```bash
+wolf tailor --jobid <jobId> --diff
+```
+- [ ] Prints before/after comparison of every changed bullet point
+
+**Scenario 6D — Cover letter flag**
+```bash
+wolf tailor --cover-letter
+```
+- [ ] After tailoring completes → runs UC-07 for all successfully tailored jobs
+
+**Scenario 6E — xelatex not installed**
+- [ ] Skips PDF compilation for all jobs, prints warning, continues to summary
+
+**Scenario 6F — Malformed .tex from Claude**
+- [ ] If response is not valid `.tex` → marks `status: tailor_error`, continues
+
+**Scenario 6G — Compilation failure**
+- [ ] Sends `.tex` + error log back to Claude to fix, retries
+- [ ] If still fails → `status: tailor_error`
+
+---
+
+## UC-07 · `wolf cover-letter`
+
+```bash
+wolf cover-letter
+wolf cover-letter --jobid <jobId>
+```
+
+**Scenario 7A — With company description**
+- [ ] JD or `companies` table has company description
+- [ ] Generated CL includes "why this company" section
+- [ ] Saved as `.md` alongside tailored resume
+- [ ] `evaluations.coverLetterPath` recorded
+- [ ] Converted to PDF via `md-to-pdf`
+- [ ] File paths printed
+
+**Scenario 7B — Without company description**
+- [ ] No company description in JD or DB
+- [ ] CL focuses on user+job fit only; no "why this company" section; nothing hallucinated
+
+**Scenario 7C — md-to-pdf not installed**
+- [ ] Saves `.md` only, prints warning, continues cleanly
+
+---
+
+## UC-08 · `wolf fill`
+
+> TODO: Design deferred.
+
+---
+
+## UC-09 · `wolf reach`
+
+> TODO: Design deferred.
+
+---
+
+## UC-12 · `wolf env`
+
+```bash
+wolf env show
+```
+
+**Scenario 12A — Show**
+- [ ] For each `WOLF_*` key: if set → prints masked value (first 4 + last 4 chars)
+- [ ] If not set → prints key name marked as "not set"
+- [ ] Full key value is never printed
+
+```bash
+wolf env clear
+```
+
+**Scenario 12B — Clear**
+- [ ] Scans shell RC files for `WOLF_*` export lines
+- [ ] Removes matching lines from RC file
+- [ ] Prints `unset WOLF_<KEY>` commands for current session
+
+**Scenario 12C — No RC file**
+- [ ] Prints warning and exits without modifying any files
+
+---
+
+## UC-13 · End-to-End Agent Workflow (MCP)
+
+In Claude Desktop with wolf MCP configured:
+
+> "Find me some jobs, score them, and help me apply"
+
+- [ ] AI calls `wolf_hunt` → reports N new jobs
+- [ ] AI calls `wolf_score` → reports scores, highlights top matches
+- [ ] AI calls `wolf_list` with score filter → presents numbered list to user
+- [ ] User selects jobs → AI calls `wolf_select`
+- [ ] AI calls `wolf_tailor` → returns PDF paths and change summary
+- [ ] All MCP tool responses are structured JSON conforming to tool output schema
 
 ---
 

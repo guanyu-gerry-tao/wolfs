@@ -158,6 +158,13 @@ Decisions made during Milestone 1 are reconstructed retrospectively from commit 
 
 ---
 
+**2026-04-04 — Auto-compress resume to one page via binary search on layout parameters**
+**Me:** After Claude tailors the resume content, the output may overflow to a second page, requiring another LLM call to ask it to shorten things. Proposed a binary-search approach that adjusts layout parameters (linespread → fontsize → margin) to force one-page output without touching the content.
+**AI:** Validated. Content layer stays with Claude; layout layer handled deterministically. Binary search over linespread (0.85–1.0), fontsize (9.5–11), and margin (0.3–0.5 in) converges in ~15–18 xelatex compilations — seconds, no extra API calls. Adjustments ordered by visual impact: linespread first (least disruptive), margin last. `microtype` included in the template as a static fallback. If all three steps fail, surface a `failed` status and ask the user to cut content manually; no silent failure.
+**Result:** Adopted for Milestone 3 tailor pipeline. Implemented in TypeScript using `child_process.spawnSync` + `xelatex`. Parameters injected via `\def` prepended to `\input{resume.tex}`. Page count read via `pdfinfo`. See GitHub issue for implementation spec.
+
+---
+
 **2026-03-25 — Added `portfolioPath` and `transcriptPath` to `UserProfile`; read-only, PDF only**
 **Me:** Portfolio and transcript should be tracked per-profile like `resumePath`, but wolf should never modify them.
 **AI:** Both fields follow the same per-profile pattern as `resumePath` (stored in `UserProfile`, configurable in `wolf init`). Key constraints enforced by convention and validated at init time: (1) read-only — wolf may attach or reference these files but must never write to them; (2) PDF only — no `.tex` or other formats accepted.

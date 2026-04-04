@@ -158,6 +158,13 @@ Milestone 1 期间的决策根据 commit 历史和对话记录进行了追溯整
 
 ---
 
+**2026-04-04 — 通过对排版参数二分搜索，自动将简历压缩至一页**
+**我：** Claude 定制简历内容后，输出可能溢出到第二页，需要再次调用 LLM 让它写短一点。提出对排版参数（行距 → 字号 → 页边距）做二分搜索，在不修改内容的前提下强制输出一页。
+**AI：** 验证通过。内容层由 Claude 处理，排版层由确定性算法处理。对行距（0.85–1.0）、字号（9.5–11）、页边距（0.3–0.5 in）依次二分，约 15–18 次 xelatex 编译即可收敛——耗时几秒，无需额外 API 调用。调整顺序按视觉破坏程度从小到大：行距优先，页边距最后。`microtype` 作为静态兜底写入模板。三步均失败时，向上抛出 `failed` 状态，提示用户手动删减内容，不允许静默失败。
+**结果：** 采用，纳入 Milestone 3 tailor 流水线。TypeScript 实现，使用 `child_process.spawnSync` + `xelatex`。参数通过 `\def` 前缀注入 `\input{resume.tex}`。页数通过 `pdfinfo` 读取。详见 GitHub issue 中的实现规格。
+
+---
+
 **2026-03-25 — 在 `UserProfile` 中新增 `portfolioPath` 和 `transcriptPath`；只读，仅支持 PDF**
 **我：** Portfolio 和 transcript 应像 `resumePath` 一样按 profile 独立配置，但 wolf 永远不应修改这些文件。
 **AI：** 两个字段沿用与 `resumePath` 相同的 per-profile 模式（存储在 `UserProfile`，通过 `wolf init` 配置）。两条约束在规范层面强制执行，并在 init 时校验：(1) 只读——wolf 可以附加或引用这些文件，但绝不允许写入；(2) 仅支持 PDF——不接受 `.tex` 或其他格式。

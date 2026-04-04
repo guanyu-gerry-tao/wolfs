@@ -5,34 +5,126 @@
 wolf 是一个双接口应用：既可以作为 **CLI 工具**（供人类用户使用），也可以作为 **MCP 服务器**（供 AI agent 如 OpenClaw 使用）。两个接口共享同一套核心命令逻辑，无论如何调用，行为保持一致。
 
 ```
-                ┌─────────────────────────────────────────────┐
-                │                  消费者                      │
-                │                                             │
-                │   人类（终端）          AI Agent（OpenClaw）  │
-                └──────┬──────────────────────────┬───────────┘
-                       │                          │
-                       v                          v
-                ┌─────────────┐          ┌────────────────┐
-                │  CLI 层     │          │   MCP 层       │
-                │ commander.js│          │   MCP SDK      │
-                └──────┬──────┘          └───────┬────────┘
-                       │                         │
-                       └────────┬────────────────┘
-                                │
-                                v
-                ┌──────────────────────────────┐
-                │       命令层（核心）           │
-                │  hunt / tailor / fill / reach │
-                │           status             │
-                └──────┬───────────────┬───────┘
-                       │               │
-              ┌────────┴───┐     ┌─────┴──────────┐
-              v            v     v                 v
-        ┌──────────┐ ┌────────┐ ┌──────────┐ ┌─────────┐
-        │ 外部服务  │ │ AI 层  │ │ 浏览器层  │ │ 本地存储 │
-        │ External │ │ Claude │ │Playwright│ │ SQLite  │
-        │ Gmail    │ │  API   │ │          │ │         │
-        └──────────┘ └────────┘ └──────────┘ └─────────┘
+        人类（终端）                 AI Agent（OpenClaw）
+               │                          │
+               v                          v
+        ┌─────────────┐          ┌────────────────┐
+        │   CLI 层    │          │    MCP 层      │   表现层
+        │ commander.js│          │   MCP SDK      │
+        └──────┬──────┘          └───────┬────────┘
+               └────────────┬────────────┘
+                            │
+                            v
+               ┌────────────────────────┐
+               │        命令层          │   Commands
+               │  tailor / hunt / score │
+               │  fill / reach / ...    │
+               └────────────┬───────────┘
+                            │
+                            v
+               ┌────────────────────────┐
+               │        流程层          │   Workflows
+               │  tailor 流水线         │
+               │  fitToOnePage          │
+               │  score 流水线          │
+               └────────────┬───────────┘
+                            │
+                            v
+               ┌────────────────────────┐
+               │        服务层          │   Services
+               │  compile / rewrite     │
+               │  scoring / email       │
+               └────────────┬───────────┘
+                            │
+                            v
+        ┌──────────┬─────────────┬──────────┬─────────┐
+        │  Claude  │   SQLite    │ xelatex  │  Gmail  │   工具层 + 外部服务
+        │   API    │             │ pdfinfo  │   API   │
+        └──────────┴─────────────┴──────────┴─────────┘
+```
+
+## 分层架构
+
+wolf 分为五层，每层只能依赖其下方的层——不允许横向或向上依赖。
+
+```
+┌──────────────────────────────────────────────────────┐
+│  表现层  src/cli/  src/mcp/                           │
+│  解析参数，格式化输出。不含任何逻辑。                    │
+├──────────────────────────────────────────────────────┤
+│  命令层  src/commands/                                │
+│  入口点。从 DB 取数据，调用 workflow，                  │
+│  处理错误，返回类型化结果。                              │
+├──────────────────────────────────────────────────────┤
+│  流程层  src/workflows/                               │
+│  多步骤流水线。编排 services。                          │
+│  不做 I/O，不访问 DB，不感知 CLI/MCP。                  │
+├──────────────────────────────────────────────────────┤
+│  服务层  src/services/                                │
+│  单一职责 I/O 操作。一件事做好。                        │
+│  对外部调用的薄层封装。                                 │
+├──────────────────────────────────────────────────────┤
+│  工具层  src/utils/                                   │
+│  基础工具。不含业务语义。                               │
+│  AI client、DB client、latex 运行器、logger。          │
+└──────────────────────────────────────────────────────┘
+```
+
+### 各层职责
+
+| 层 | 目录 | 负责 | 不负责 |
+|---|---|---|---|
+| **工具层** | `src/utils/` | 封装外部工具/SDK（Anthropic、SQLite、xelatex、pdfinfo） | 任何业务逻辑或领域概念 |
+| **服务层** | `src/services/` | 执行单一操作（解析简历、编译 tex、对一个职位评分） | 编排多步骤流程或串联其他 services |
+| **流程层** | `src/workflows/` | 编排多步骤流水线（fitToOnePage、tailor pipeline） | 感知 DB、CLI 参数或 MCP schema |
+| **命令层** | `src/commands/` | 参数 → workflow 的映射；读写 DB；错误处理 | 包含业务逻辑——一切委托给 workflows |
+| **表现层** | `src/cli/` `src/mcp/` | 解析输入，格式化输出 | 参数映射以外的任何逻辑 |
+
+### 规划目录结构
+
+```
+src/
+├── cli/              # 表现层 — commander.js
+├── mcp/              # 表现层 — MCP SDK
+├── commands/         # 命令层 — 每个子命令一个文件夹
+├── workflows/        # 流程层 — 多步骤流水线
+│   ├── tailor.ts         # 完整 tailor 流水线（解析 → 改写 → 编译 → 压缩）
+│   ├── fitToOnePage.ts   # 对排版参数二分搜索
+│   ├── score.ts          # 字段提取 → 硬过滤 → 批量/单次评分
+│   └── hunt.ts           # 抓取 → 去重 → 存库
+├── services/         # 服务层 — 单一职责操作
+│   ├── resume.ts         # parseResumeTex()、writeResumeTex()
+│   ├── compile.ts        # compileTex(params)、getPageCount()
+│   ├── rewrite.ts        # rewriteBullets(resume, jd, profile)
+│   ├── scoring.ts        # extractFields()、applyDealbreakers()、scoreWithClaude()
+│   └── email.ts          # draftEmail()、sendEmail()
+├── utils/            # 工具层 — 基础工具
+│   ├── ai.ts             # Anthropic SDK client + 重试
+│   ├── db.ts             # SQLite CRUD
+│   ├── latex.ts          # xelatex 运行器、pdfinfo
+│   ├── config.ts         # wolf.toml 读写
+│   ├── env.ts            # WOLF_* 环境变量
+│   └── logger.ts         # 结构化日志
+└── types/            # 共享类型（横切关注点，不属于某一层）
+```
+
+### 示例：tailor 跨层调用链
+
+```
+CLI 解析 --job abc123
+  → [命令层] tailor({ jobId })
+      → db.getJob(jobId)               # 工具层：SQLite
+      → db.getProfile(profileId)       # 工具层：SQLite
+      → [流程层] runTailorPipeline(resume, jd, profile)
+          → [服务层] parseResumeTex(texPath)     # 解析 .tex → Resume 结构
+          → [服务层] rewriteBullets(resume, jd)  # 调用 Claude
+          → [服务层] writeResumeTex(result)      # 写入定制 .tex
+          → [流程层] fitToOnePage(texPath)        # 二分搜索 → 编译循环
+              → [服务层] compileTex(params)       # xelatex
+              → [服务层] getPageCount(pdfPath)    # pdfinfo
+      → db.updateEvaluation(jobId, { tailoredResumePath, matchScore })
+      → return { tailoredTexPath, tailoredPdfPath, matchScore, changes }
+  → CLI 格式化并打印摘要
 ```
 
 ## 设计原则
